@@ -87,5 +87,22 @@ func joinCodexSchemaPath(base, suffix string) string {
 }
 
 func escapeCodexSchemaPathKey(key string) string {
-	return strings.NewReplacer(":", "\\:").Replace(ojson.Escape(key))
+	forceObjectKey := isCodexNumericPathKey(key)
+	escaped := strings.NewReplacer(":", "\\:").Replace(ojson.Escape(key))
+	if forceObjectKey {
+		return ":" + escaped
+	}
+	return escaped
+}
+
+func isCodexNumericPathKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < '0' || key[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
