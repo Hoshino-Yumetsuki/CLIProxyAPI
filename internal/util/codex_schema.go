@@ -37,27 +37,46 @@ func codexSchemaNullArrayFieldPaths(raw string) []string {
 }
 
 func walkCodexSchemaNullArrayFields(value ojson.Result, path string, arrayFields map[string]struct{}, paths *[]string) {
-	if value.IsArray() {
-		items := value.Array()
-		for i, item := range items {
-			walkCodexSchemaNullArrayFields(item, joinCodexSchemaPath(path, strconv.Itoa(i)), arrayFields, paths)
-		}
-		return
-	}
-	if !value.IsObject() {
-		return
+	type walkNode struct {
+		value ojson.Result
+		path  string
 	}
 
-	value.ForEach(func(key, child ojson.Result) bool {
-		keyString := key.String()
-		childPath := joinCodexSchemaPath(path, ojson.Escape(keyString))
-		if _, ok := arrayFields[keyString]; ok && child.Type == ojson.Null {
-			*paths = append(*paths, childPath)
-			return true
+	stack := []walkNode{{value: value, path: path}}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if node.value.IsArray() {
+			items := node.value.Array()
+			for i := len(items) - 1; i >= 0; i-- {
+				stack = append(stack, walkNode{
+					value: items[i],
+					path:  joinCodexSchemaPath(node.path, strconv.Itoa(i)),
+				})
+			}
+			continue
 		}
-		walkCodexSchemaNullArrayFields(child, childPath, arrayFields, paths)
-		return true
-	})
+		if !node.value.IsObject() {
+			continue
+		}
+
+		children := make([]walkNode, 0)
+		node.value.ForEach(func(key, child ojson.Result) bool {
+			keyString := key.String()
+			childPath := joinCodexSchemaPath(node.path, escapeCodexSchemaPathKey(keyString))
+			if _, ok := arrayFields[keyString]; ok && child.Type == ojson.Null {
+				*paths = append(*paths, childPath)
+				return true
+			}
+			children = append(children, walkNode{value: child, path: childPath})
+			return true
+		})
+
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
+		}
+	}
 }
 
 func joinCodexSchemaPath(base, suffix string) string {
@@ -67,3 +86,6 @@ func joinCodexSchemaPath(base, suffix string) string {
 	return base + "." + suffix
 }
 
+func escapeCodexSchemaPathKey(key string) string {
+	return strings.NewReplacer(":", "\\:").Replace(ojson.Escape(key))
+}
