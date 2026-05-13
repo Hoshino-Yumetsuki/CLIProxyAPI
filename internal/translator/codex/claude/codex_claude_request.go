@@ -1133,15 +1133,17 @@ func buildReverseMapFromClaudeOriginalToShort(original []byte) map[string]string
 }
 
 // normalizeToolParameters ensures object schemas contain at least an empty properties map,
-// strips dialect keywords ($schema, $id), and drops regex patterns containing unsupported
-// Unicode property escapes (\p{...} / \P{...}) that cause upstream schema validation failures.
+// strips dialect keywords ($schema, $id), drops regex patterns containing unsupported
+// Unicode property escapes (\p{...} / \P{...}) that cause upstream schema validation failures,
+// and removes array-valued schema keywords set to null that Codex rejects.
 func normalizeToolParameters(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "null" || !ojson.Valid(raw) {
 		return `{"type":"object","properties":{}}`
 	}
+	normalized := util.NormalizeCodexToolSchema(raw)
 	var root map[string]any
-	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder := json.NewDecoder(bytes.NewReader(normalized))
 	decoder.UseNumber()
 	if errDecode := decoder.Decode(&root); errDecode != nil || root == nil {
 		return `{"type":"object","properties":{}}`
