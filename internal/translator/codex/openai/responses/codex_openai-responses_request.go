@@ -378,7 +378,9 @@ func convertSystemRoleToDeveloperWithInput(rawJSON []byte, inputResult ojson.Res
 }
 
 // normalizeCodexBuiltinToolsDoc rewrites legacy/preview built-in tool variants to the
-// stable names expected by the current Codex upstream.
+// stable names expected by the current Codex upstream. For function tools in the
+// top-level tools array it also strips null array-valued schema keywords
+// (allOf/anyOf/enum/oneOf/required) that Codex rejects.
 func normalizeCodexBuiltinToolsDoc(rawJSON []byte, ensureDoc func() *ojson.Doc) {
 	normalizeCodexBuiltinToolArrayDoc(rawJSON, ensureDoc, "tools")
 	normalizeCodexBuiltinToolAtPathDoc(rawJSON, ensureDoc, "tool_choice.type")
@@ -403,6 +405,15 @@ func normalizeCodexBuiltinToolArrayDoc(rawJSON []byte, ensureDoc func() *ojson.D
 				item = updated
 				changed = true
 				log.Debugf("codex responses: normalized builtin tool type at %s.%d.type from %q to %q", path, len(toolItems), currentType, normalizedType)
+			}
+		}
+		if path == "tools" && currentType == "function" {
+			if parameters := tool.Get("parameters"); parameters.Exists() {
+				normalized := util.NormalizeCodexToolSchema(parameters.Raw)
+				if updated, errSetParams := ojson.SetRawBytes(item, "parameters", normalized); errSetParams == nil {
+					item = updated
+					changed = true
+				}
 			}
 		}
 		toolItems = append(toolItems, item)

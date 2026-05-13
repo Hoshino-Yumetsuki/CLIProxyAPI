@@ -495,7 +495,8 @@ func setCodexToolChoiceFromGeminiToolConfig(out []byte, functionCallingConfig oj
 }
 
 func cleanGeminiCodexToolParameters(parameters ojson.Result) []byte {
-	cleaned := util.NormalizeJSONSchemaNumericConstraints(parameters.Raw)
+	cleaned := string(util.NormalizeCodexToolSchema(parameters.Raw))
+	cleaned = util.NormalizeJSONSchemaNumericConstraints(cleaned)
 	hasSchema := parameters.Get("$schema").Exists()
 	needsAdditionalProps := parameters.Get("additionalProperties").Type != ojson.False
 	if !hasSchema && !needsAdditionalProps {
