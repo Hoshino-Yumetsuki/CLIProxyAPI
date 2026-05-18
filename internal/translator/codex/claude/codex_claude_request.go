@@ -1118,7 +1118,7 @@ func buildReverseMapFromClaudeOriginalToShort(original []byte) map[string]string
 		}
 		var names []string
 		arr := tools.Array()
-		for i := 0; i < len(arr); i++ {
+		for i := range len(arr) {
 			n := arr[i].Get("name").String()
 			if n != "" {
 				names = append(names, n)
@@ -1136,11 +1136,9 @@ func buildReverseMapFromClaudeOriginalToShort(original []byte) map[string]string
 // strips dialect keywords ($schema, $id), drops regex patterns containing unsupported
 // Unicode property escapes (\p{...} / \P{...}) that cause upstream schema validation failures,
 // and removes array-valued schema keywords set to null that Codex rejects.
+// NormalizeCodexToolSchema handles invalid/empty/null input by returning a
+// safe default, so validation is delegated to it.
 func normalizeToolParameters(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "null" || !ojson.Valid(raw) {
-		return `{"type":"object","properties":{}}`
-	}
 	normalized := util.NormalizeCodexToolSchema(raw)
 	var root map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(normalized))
