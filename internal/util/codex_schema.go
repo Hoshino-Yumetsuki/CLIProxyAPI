@@ -90,6 +90,9 @@ func escapeCodexSchemaPathKey(key string) string {
 	forceObjectKey := isCodexNumericPathKey(key)
 	escaped := strings.NewReplacer(":", "\\:").Replace(ojson.Escape(key))
 	if forceObjectKey {
+		// sjson treats bare numeric path segments as array indices; prefix with
+		// ":" to force object-key lookup so numeric property names (e.g. "123")
+		// resolve as object members rather than array positions.
 		return ":" + escaped
 	}
 	return escaped
