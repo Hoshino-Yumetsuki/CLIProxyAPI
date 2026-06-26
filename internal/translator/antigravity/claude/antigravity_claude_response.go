@@ -10,13 +10,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/MoeForge/moego/base64"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/MoeForge/moego/base64"
+
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/cache"
 	sigcompat "github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	log "github.com/sirupsen/logrus"
@@ -90,6 +92,13 @@ type Params struct {
 	CurrentThinkingText   strings.Builder // Accumulates thinking text for signature caching
 	CurrentThinkingSigned bool            // Tracks whether the active thinking block already has its terminal signature
 
+	// Thinking tag parsing state (for models that return <thinking> as raw text)
+	ThinkingTagEnabled          bool            // Whether to scan for <thinking> tags in text content
+	ThinkingTagBuffer           strings.Builder // Accumulates text for cross-chunk tag detection
+	InThinkingTagBlock          bool            // Currently inside <thinking>...</thinking> tags
+	ThinkingTagExtracted        bool            // A thinking block has been extracted from tags
+	StripThinkingLeadingNewline bool            // Strip leading \n after <thinking>
+
 	// Reverse map: sanitized Gemini function name → original Claude tool name.
 	// Populated lazily on the first response chunk from the original request JSON.
 	ToolNameMap map[string]string
@@ -131,6 +140,184 @@ func antigravityClaudeToolUseID(modelName string, functionCall ojson.Result, fal
 	return util.SanitizeClaudeToolID(fallback)
 }
 
+// processThinkingTagBuffer implements the thinking tag state machine for streaming.
+// It scans the ThinkingTagBuffer for <thinking>/</ thinking> tags and emits
+// the appropriate thinking/text SSE events.
+// When atBoundary is true (stream end or tool_use arrival), all remaining buffered
+// content is flushed without retaining partial-tag guard bytes.
+func processThinkingTagBuffer(params *Params, appendEvent func(string, string), atBoundary bool) {
+	for {
+		buf := params.ThinkingTagBuffer.String()
+		if buf == "" {
+			break
+		}
+
+		if !params.InThinkingTagBlock {
+			startPos := thinking.FindThinkingStartTag(buf)
+			if startPos >= 0 {
+				before := buf[:startPos]
+				if strings.TrimSpace(before) != "" {
+					emitTextContent(params, appendEvent, before)
+				}
+
+				params.InThinkingTagBlock = true
+				params.StripThinkingLeadingNewline = true
+				params.ThinkingTagBuffer.Reset()
+				params.ThinkingTagBuffer.WriteString(buf[startPos+thinking.ThinkingStartTagLen:])
+
+				if params.ResponseType != 0 {
+					appendEvent("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, params.ResponseIndex))
+					params.ResponseIndex++
+				}
+				appendEvent("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"thinking","thinking":""}}`, params.ResponseIndex))
+				params.ResponseType = 2
+				params.HasContent = true
+				params.CurrentThinkingText.Reset()
+				continue
+			}
+
+			if atBoundary {
+				if strings.TrimSpace(buf) != "" {
+					emitTextContent(params, appendEvent, buf)
+				}
+				params.ThinkingTagBuffer.Reset()
+				break
+			}
+
+			safeLen := len(buf) - thinking.ThinkingStartTagLen
+			if safeLen < 0 {
+				safeLen = 0
+			}
+			if safeLen > 0 {
+				safeContent := buf[:safeLen]
+				if strings.TrimSpace(safeContent) != "" || params.ThinkingTagExtracted {
+					emitTextContent(params, appendEvent, safeContent)
+				}
+				params.ThinkingTagBuffer.Reset()
+				params.ThinkingTagBuffer.WriteString(buf[safeLen:])
+			}
+			break
+		}
+
+		// Inside <thinking> block, look for </thinking>
+		if params.StripThinkingLeadingNewline {
+			if strings.HasPrefix(buf, "\n") {
+				params.ThinkingTagBuffer.Reset()
+				params.ThinkingTagBuffer.WriteString(buf[1:])
+				params.StripThinkingLeadingNewline = false
+				continue
+			} else if buf != "" {
+				params.StripThinkingLeadingNewline = false
+			}
+		}
+
+		buf = params.ThinkingTagBuffer.String()
+
+		var endPos int
+		useEndTagWithNewlines := true
+		if atBoundary {
+			endPos = thinking.FindThinkingEndTagAtEnd(buf)
+			useEndTagWithNewlines = false
+		} else {
+			endPos = thinking.FindThinkingEndTag(buf)
+		}
+
+		if endPos >= 0 {
+			thinkingContent := buf[:endPos]
+			if thinkingContent != "" {
+				params.CurrentThinkingText.WriteString(thinkingContent)
+				data, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"thinking_delta","thinking":""}}`, params.ResponseIndex)), "delta.thinking", thinkingContent)
+				appendEvent("content_block_delta", string(data))
+				params.HasContent = true
+			}
+
+			sigValue := thinking.SyntheticThinkingSignature()
+			sigData, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":""}}`, params.ResponseIndex)), "delta.signature", sigValue)
+			appendEvent("content_block_delta", string(sigData))
+
+			appendEvent("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, params.ResponseIndex))
+			params.ResponseIndex++
+			params.InThinkingTagBlock = false
+			params.ThinkingTagExtracted = true
+			params.ResponseType = 0
+			params.CurrentThinkingText.Reset()
+
+			var remaining string
+			if useEndTagWithNewlines {
+				remaining = buf[endPos+thinking.ThinkingEndTagWithNewlinesLen:]
+			} else {
+				after := buf[endPos+thinking.ThinkingEndTagLen:]
+				remaining = strings.TrimLeft(after, " \t\r\n")
+			}
+			params.ThinkingTagBuffer.Reset()
+			if remaining != "" {
+				params.ThinkingTagBuffer.WriteString(remaining)
+				continue
+			}
+			break
+		}
+
+		if atBoundary {
+			if buf != "" {
+				params.CurrentThinkingText.WriteString(buf)
+				data, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"thinking_delta","thinking":""}}`, params.ResponseIndex)), "delta.thinking", buf)
+				appendEvent("content_block_delta", string(data))
+				params.HasContent = true
+			}
+
+			sigValue := thinking.SyntheticThinkingSignature()
+			sigData, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":""}}`, params.ResponseIndex)), "delta.signature", sigValue)
+			appendEvent("content_block_delta", string(sigData))
+
+			appendEvent("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, params.ResponseIndex))
+			params.ResponseIndex++
+			params.InThinkingTagBlock = false
+			params.ThinkingTagExtracted = true
+			params.ResponseType = 0
+			params.CurrentThinkingText.Reset()
+			params.ThinkingTagBuffer.Reset()
+			break
+		}
+
+		safeLen := len(buf) - thinking.ThinkingEndTagWithNewlinesLen
+		if safeLen < 0 {
+			safeLen = 0
+		}
+		if safeLen > 0 {
+			safeContent := buf[:safeLen]
+			params.CurrentThinkingText.WriteString(safeContent)
+			data, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"thinking_delta","thinking":""}}`, params.ResponseIndex)), "delta.thinking", safeContent)
+			appendEvent("content_block_delta", string(data))
+			params.HasContent = true
+			params.ThinkingTagBuffer.Reset()
+			params.ThinkingTagBuffer.WriteString(buf[safeLen:])
+		}
+		break
+	}
+}
+
+// emitTextContent emits text as text_delta, handling state transitions.
+func emitTextContent(params *Params, appendEvent func(string, string), text string) {
+	if text == "" {
+		return
+	}
+	if params.ResponseType == 1 {
+		data, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"text_delta","text":""}}`, params.ResponseIndex)), "delta.text", text)
+		appendEvent("content_block_delta", string(data))
+		params.HasContent = true
+	} else {
+		if params.ResponseType != 0 {
+			appendEvent("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, params.ResponseIndex))
+			params.ResponseIndex++
+		}
+		appendEvent("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"text","text":""}}`, params.ResponseIndex))
+		data, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"text_delta","text":""}}`, params.ResponseIndex)), "delta.text", text)
+		appendEvent("content_block_delta", string(data))
+		params.ResponseType = 1
+		params.HasContent = true
+	}
+}
+
 // ConvertAntigravityResponseToClaude performs sophisticated streaming response format conversion.
 // This function implements a complex state machine that translates backend client responses
 // into Claude Code-compatible Server-Sent Events (SSE) format. It manages different response types
@@ -150,10 +337,11 @@ func antigravityClaudeToolUseID(modelName string, functionCall ojson.Result, fal
 func ConvertAntigravityResponseToClaude(ctx context.Context, _ string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) [][]byte {
 	if *param == nil {
 		*param = &Params{
-			HasFirstResponse: false,
-			ResponseType:     0,
-			ResponseIndex:    0,
-			ToolNameMap:      util.DisambiguatedToolNameMap(originalRequestRawJSON),
+			HasFirstResponse:   false,
+			ResponseType:       0,
+			ResponseIndex:      0,
+			ThinkingTagEnabled: thinking.IsThinkingEnabledInAntigravityRequest(requestRawJSON),
+			ToolNameMap:        util.DisambiguatedToolNameMap(originalRequestRawJSON),
 		}
 	}
 	params := (*param).(*Params)
@@ -193,6 +381,15 @@ func ConvertAntigravityResponseToClaude(ctx context.Context, _ string, originalR
 			}
 			return [][]byte{}
 		}
+		doneAppendEvent := func(event, payload string) {
+			output = translatorcommon.AppendSSEEventString(output, event, payload, 3)
+		}
+
+		// Flush thinking tag buffer at stream end
+		if params.ThinkingTagEnabled && params.ThinkingTagBuffer.Len() > 0 {
+			processThinkingTagBuffer(params, doneAppendEvent, true)
+		}
+
 		if params.HasFirstResponse && !params.HasContent {
 			output = translatorcommon.AppendSSEEventString(output, "content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"text","text":""}}`, params.ResponseIndex), 3)
 			params.ResponseType = 1
@@ -394,7 +591,12 @@ func ConvertAntigravityResponseToClaude(ctx context.Context, _ string, originalR
 					if hasThoughtSignature {
 						signatureTargetsVisibleText = appendPartSignature(thoughtSignatureResult.String(), geminiClaudeCarrierNext, geminiClaudeCarrierText)
 					}
-					if params.ResponseType == 1 {
+					if params.ThinkingTagEnabled {
+						if partText != "" {
+							params.ThinkingTagBuffer.WriteString(partText)
+							processThinkingTagBuffer(params, appendEvent, false)
+						}
+					} else if params.ResponseType == 1 {
 						data, _ := ojson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"text_delta","text":""}}`, params.ResponseIndex)), "delta.text", partText)
 						appendEvent("content_block_delta", string(data))
 						params.HasContent = true
@@ -422,6 +624,10 @@ func ConvertAntigravityResponseToClaude(ctx context.Context, _ string, originalR
 					}
 				}
 			} else if functionCallResult.Exists() {
+				// Flush thinking tag buffer before processing function calls
+				if params.ThinkingTagEnabled && params.ThinkingTagBuffer.Len() > 0 {
+					processThinkingTagBuffer(params, appendEvent, true)
+				}
 				toolSignature := thoughtSignatureResult.String()
 				fcName := util.RestoreSanitizedToolName(params.ToolNameMap, functionCallResult.Get("name").String())
 				isContinuation := params.ResponseType == 3 && fcName == "" && params.CurrentToolName != ""
@@ -905,6 +1111,31 @@ func ConvertAntigravityResponseToClaudeNonStream(_ context.Context, _ string, or
 	}
 
 	flushThinking()
+	// Extract <thinking> tags from accumulated text when thinking is enabled
+	// but upstream didn't use structured thought fields
+	if thinking.IsThinkingEnabledInAntigravityRequest(requestRawJSON) && textBuilder.Len() > 0 && thinkingBuilder.Len() == 0 {
+		segments := thinking.ExtractThinkingFromText(textBuilder.String())
+		hasThinkingSegment := false
+		for _, seg := range segments {
+			if seg.IsThinking {
+				hasThinkingSegment = true
+				break
+			}
+		}
+		if hasThinkingSegment {
+			textBuilder.Reset()
+			for _, seg := range segments {
+				if seg.IsThinking {
+					blockDoc := ojson.NewDoc([]byte(`{"type":"thinking","thinking":""}`))
+					_ = blockDoc.Set("thinking", seg.Text)
+					_ = blockDoc.Set("signature", thinking.SyntheticThinkingSignature())
+					blocks = append(blocks, blockDoc.Bytes())
+				} else if strings.TrimSpace(seg.Text) != "" {
+					textBuilder.WriteString(seg.Text)
+				}
+			}
+		}
+	}
 	flushText()
 
 	if len(blocks) > 0 {
