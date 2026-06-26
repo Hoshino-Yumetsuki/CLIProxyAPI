@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/MoeForge/moego/base64"
 
@@ -140,6 +141,17 @@ func antigravityClaudeToolUseID(modelName string, functionCall ojson.Result, fal
 	return util.SanitizeClaudeToolID(fallback)
 }
 
+// alignUTF8 adjusts a byte offset backward so it does not split a multi-byte UTF-8 character.
+func alignUTF8(s string, pos int) int {
+	if pos <= 0 || pos >= len(s) {
+		return pos
+	}
+	for pos > 0 && !utf8.RuneStart(s[pos]) {
+		pos--
+	}
+	return pos
+}
+
 // processThinkingTagBuffer implements the thinking tag state machine for streaming.
 // It scans the ThinkingTagBuffer for <thinking>/</ thinking> tags and emits
 // the appropriate thinking/text SSE events.
@@ -188,6 +200,7 @@ func processThinkingTagBuffer(params *Params, appendEvent func(string, string), 
 			if safeLen < 0 {
 				safeLen = 0
 			}
+			safeLen = alignUTF8(buf, safeLen)
 			if safeLen > 0 {
 				safeContent := buf[:safeLen]
 				if strings.TrimSpace(safeContent) != "" || params.ThinkingTagExtracted {
@@ -283,6 +296,7 @@ func processThinkingTagBuffer(params *Params, appendEvent func(string, string), 
 		if safeLen < 0 {
 			safeLen = 0
 		}
+		safeLen = alignUTF8(buf, safeLen)
 		if safeLen > 0 {
 			safeContent := buf[:safeLen]
 			params.CurrentThinkingText.WriteString(safeContent)
