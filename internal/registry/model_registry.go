@@ -1580,14 +1580,37 @@ func clientQuotaRecoveryAt(registration *ModelRegistration, clientID string, quo
 }
 
 func modelRegistrationAvailability(registration *ModelRegistration, now time.Time) (bool, time.Time) {
+	return modelRegistrationProviderAvailability(registration, "", nil, now)
+}
+
+// modelRegistrationProviderAvailability reports whether a model registration
+// still has routable capacity. When provider is empty the whole registration is
+// considered; otherwise only clients attributed to provider in clientProviders
+// are counted, so rate limiting one provider does not remove the model from
+// the catalog while another provider still has healthy clients.
+func modelRegistrationProviderAvailability(registration *ModelRegistration, provider string, clientProviders map[string]string, now time.Time) (bool, time.Time) {
 	if registration == nil {
 		return false, time.Time{}
 	}
 
 	availableClients := registration.Count
+	matches := func(clientID string) bool { return true }
+	if provider != "" {
+		availableClients = 0
+		if registration.Providers != nil {
+			availableClients = registration.Providers[provider]
+		}
+		matches = func(clientID string) bool {
+			p, ok := clientProviders[clientID]
+			return ok && p == provider
+		}
+	}
 	expiredClients := 0
 	var expiresAt time.Time
 	for clientID, quotaTime := range registration.QuotaExceededClients {
+		if !matches(clientID) {
+			continue
+		}
 		recoveryAt, ok := clientQuotaRecoveryAt(registration, clientID, quotaTime)
 		if !ok {
 			continue
@@ -1605,6 +1628,9 @@ func modelRegistrationAvailability(registration *ModelRegistration, now time.Tim
 	quotaAndSuspended := 0
 	if registration.SuspendedClients != nil {
 		for clientID := range registration.SuspendedClients {
+			if !matches(clientID) {
+				continue
+			}
 			reason, deadline, active := clientSuspensionActive(registration, clientID, now)
 			if !active {
 				continue
@@ -1659,17 +1685,40 @@ func (r *ModelRegistry) buildAvailableModelsLocked(handlerType string, now time.
 	var expiresAt time.Time
 
 	for _, registration := range r.models {
-		available, registrationExpiresAt := modelRegistrationAvailability(registration, now)
-		if !registrationExpiresAt.IsZero() && (expiresAt.IsZero() || registrationExpiresAt.Before(expiresAt)) {
-			expiresAt = registrationExpiresAt
-		}
-		if !available || registration == nil {
+		if registration == nil {
 			continue
 		}
+		// Check availability per-provider to respect provider isolation.
+		// A model is available if ANY provider has available clients.
+		hasAvailableProvider := false
+		if len(registration.Providers) == 0 {
+			// No provider attribution; fall back to whole-registration availability.
+			available, modelExpiresAt := modelRegistrationAvailability(registration, now)
+			if !modelExpiresAt.IsZero() && (expiresAt.IsZero() || modelExpiresAt.Before(expiresAt)) {
+				expiresAt = modelExpiresAt
+			}
+			hasAvailableProvider = available
+		} else {
+			for provider, providerClientCount := range registration.Providers {
+				if providerClientCount <= 0 {
+					continue
+				}
+				available, providerExpiresAt := modelRegistrationProviderAvailability(registration, provider, r.clientProviders, now)
+				if !providerExpiresAt.IsZero() && (expiresAt.IsZero() || providerExpiresAt.Before(expiresAt)) {
+					expiresAt = providerExpiresAt
+				}
+				if available {
+					hasAvailableProvider = true
+					break
+				}
+			}
+		}
 
-		model := r.convertModelToMap(registration.Info, handlerType)
-		if model != nil {
-			models = append(models, model)
+		if hasAvailableProvider {
+			model := r.convertModelToMap(registration.Info, handlerType)
+			if model != nil {
+				models = append(models, model)
+			}
 		}
 	}
 
