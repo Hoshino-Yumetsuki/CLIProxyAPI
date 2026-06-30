@@ -799,40 +799,65 @@ func (r *ModelRegistry) buildAvailableModelsLocked(handlerType string, now time.
 	var expiresAt time.Time
 
 	for _, registration := range r.models {
-		availableClients := registration.Count
+		// Check availability per-provider to respect provider isolation.
+		// A model is available if ANY provider has available clients.
+		hasAvailableProvider := false
 
-		expiredClients := 0
-		for _, quotaTime := range registration.QuotaExceededClients {
-			if quotaTime == nil {
+		for provider, providerClientCount := range registration.Providers {
+			if providerClientCount <= 0 {
 				continue
 			}
-			recoveryAt := quotaTime.Add(modelQuotaExceededWindow)
-			if now.Before(recoveryAt) {
-				expiredClients++
-				if expiresAt.IsZero() || recoveryAt.Before(expiresAt) {
-					expiresAt = recoveryAt
-				}
-			}
-		}
 
-		cooldownSuspended := 0
-		otherSuspended := 0
-		if registration.SuspendedClients != nil {
-			for _, reason := range registration.SuspendedClients {
-				if strings.EqualFold(reason, "quota") {
-					cooldownSuspended++
+			// Count quota-exceeded clients for this provider
+			expiredClients := 0
+			for clientID, quotaTime := range registration.QuotaExceededClients {
+				if quotaTime == nil {
 					continue
 				}
-				otherSuspended++
+				// Check if this client belongs to this provider
+				if p, ok := r.clientProviders[clientID]; !ok || p != provider {
+					continue
+				}
+				recoveryAt := quotaTime.Add(modelQuotaExceededWindow)
+				if now.Before(recoveryAt) {
+					expiredClients++
+					if expiresAt.IsZero() || recoveryAt.Before(expiresAt) {
+						expiresAt = recoveryAt
+					}
+				}
+			}
+
+			// Count suspended clients for this provider
+			cooldownSuspended := 0
+			otherSuspended := 0
+			if registration.SuspendedClients != nil {
+				for clientID, reason := range registration.SuspendedClients {
+					// Check if this client belongs to this provider
+					if p, ok := r.clientProviders[clientID]; !ok || p != provider {
+						continue
+					}
+					if strings.EqualFold(reason, "quota") {
+						cooldownSuspended++
+						continue
+					}
+					otherSuspended++
+				}
+			}
+
+			// Calculate effective clients for this provider
+			effectiveClients := providerClientCount - expiredClients - otherSuspended
+			if effectiveClients < 0 {
+				effectiveClients = 0
+			}
+
+			// Provider is available if it has effective clients OR has clients in cooldown/quota recovery
+			if effectiveClients > 0 || (providerClientCount > 0 && (expiredClients > 0 || cooldownSuspended > 0) && otherSuspended == 0) {
+				hasAvailableProvider = true
+				break
 			}
 		}
 
-		effectiveClients := availableClients - expiredClients - otherSuspended
-		if effectiveClients < 0 {
-			effectiveClients = 0
-		}
-
-		if effectiveClients > 0 || (availableClients > 0 && (expiredClients > 0 || cooldownSuspended > 0) && otherSuspended == 0) {
+		if hasAvailableProvider {
 			model := r.convertModelToMap(registration.Info, handlerType)
 			if model != nil {
 				models = append(models, model)
