@@ -409,6 +409,7 @@ func ConvertAntigravityResponseToClaude(ctx context.Context, _ string, originalR
 			params.ResponseType = 1
 			params.HasContent = true
 		}
+		// Only send final events if we have actually output content
 		if params.HasContent {
 			appendFinalEvents(params, &output, true)
 			output = translatorcommon.AppendSSEEventString(output, "message_stop", `{"type":"message_stop"}`, 3)
