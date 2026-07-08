@@ -2273,6 +2273,126 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
 }
 
+// DirectLoginAntigravityWithRefreshToken allows direct login with a refresh token
+func (h *Handler) DirectLoginAntigravityWithRefreshToken(c *gin.Context) {
+	ctx := context.Background()
+	ctx = PopulateAuthContext(ctx, c)
+
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+		Email        string `json:"email"`
+	}
+
+	if errBind := c.ShouldBindJSON(&req); errBind != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "refresh_token is required"})
+		return
+	}
+
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "refresh_token cannot be empty"})
+		return
+	}
+
+	fmt.Println("Authenticating with refresh token...")
+
+	authSvc := antigravity.NewAntigravityAuth(h.cfg, nil)
+
+	// Exchange refresh token for new access token
+	tokenResp, errToken := authSvc.ExchangeRefreshToken(ctx, refreshToken)
+	if errToken != nil {
+		log.Errorf("Failed to exchange refresh token: %v", errToken)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Failed to exchange refresh token, token may be invalid or expired"})
+		return
+	}
+
+	accessToken := strings.TrimSpace(tokenResp.AccessToken)
+	if accessToken == "" {
+		log.Error("antigravity: refresh token exchange returned empty access token")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to obtain access token"})
+		return
+	}
+
+	// Fetch user info if email not provided
+	email := strings.TrimSpace(req.Email)
+	if email == "" {
+		fetchedEmail, errInfo := authSvc.FetchUserInfo(ctx, accessToken)
+		if errInfo != nil {
+			log.Errorf("Failed to fetch user info: %v", errInfo)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user info"})
+			return
+		}
+		email = strings.TrimSpace(fetchedEmail)
+	}
+
+	if email == "" {
+		log.Error("antigravity: could not determine user email")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not determine user email"})
+		return
+	}
+
+	// Fetch project ID
+	projectID := ""
+	if accessToken != "" {
+		fetchedProjectID, errProject := authSvc.FetchProjectID(ctx, accessToken)
+		if errProject != nil {
+			log.Warnf("antigravity: failed to fetch project ID: %v", errProject)
+		} else {
+			projectID = fetchedProjectID
+			log.Infof("antigravity: obtained project ID %s", util.HideAPIKey(projectID))
+		}
+	}
+
+	now := time.Now()
+	metadata := map[string]any{
+		"type":          "antigravity",
+		"access_token":  tokenResp.AccessToken,
+		"refresh_token": tokenResp.RefreshToken,
+		"expires_in":    tokenResp.ExpiresIn,
+		"timestamp":     now.UnixMilli(),
+		"expired":       now.Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339),
+	}
+	if email != "" {
+		metadata["email"] = email
+	}
+	if projectID != "" {
+		metadata["project_id"] = projectID
+	}
+
+	fileName := antigravity.CredentialFileName(email)
+	label := strings.TrimSpace(email)
+	if label == "" {
+		label = "antigravity"
+	}
+
+	record := &coreauth.Auth{
+		ID:       fileName,
+		Provider: "antigravity",
+		FileName: fileName,
+		Label:    label,
+		Metadata: metadata,
+	}
+	savedPath, errSave := h.saveTokenRecord(ctx, record)
+	if errSave != nil {
+		log.Errorf("Failed to save token to file: %v", errSave)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save token to file"})
+		return
+	}
+
+	fmt.Printf("Authentication successful! Token saved to %s\n", savedPath)
+	if projectID != "" {
+		fmt.Printf("Using GCP project: %s\n", util.HideAPIKey(projectID))
+	}
+	fmt.Println("You can now use Antigravity services through this CLI")
+
+	c.JSON(200, gin.H{
+		"status":  "ok",
+		"message": "Authentication successful",
+		"email":   email,
+		"path":    savedPath,
+	})
+}
+
 func (h *Handler) RequestXAIToken(c *gin.Context) {
 	ctx := context.Background()
 	ctx = PopulateAuthContext(ctx, c)

@@ -178,6 +178,53 @@ func (o *AntigravityAuth) ExchangeCodeForTokens(ctx context.Context, code, redir
 	return &token, nil
 }
 
+// ExchangeRefreshToken exchanges a refresh token for a new access token
+func (o *AntigravityAuth) ExchangeRefreshToken(ctx context.Context, refreshToken string) (*TokenResponse, error) {
+	data := url.Values{}
+	data.Set("refresh_token", refreshToken)
+	data.Set("client_id", ClientID)
+	data.Set("client_secret", ClientSecret)
+	data.Set("grant_type", "refresh_token")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, TokenEndpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("antigravity refresh token: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, errDo := o.httpClient.Do(req)
+	if errDo != nil {
+		return nil, fmt.Errorf("antigravity refresh token: execute request: %w", errDo)
+	}
+	defer func() {
+		if errClose := resp.Body.Close(); errClose != nil {
+			log.Errorf("antigravity refresh token: close body error: %v", errClose)
+		}
+	}()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, errRead := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		if errRead != nil {
+			return nil, fmt.Errorf("antigravity refresh token: read response: %w", errRead)
+		}
+		body := strings.TrimSpace(string(bodyBytes))
+		if body == "" {
+			return nil, fmt.Errorf("antigravity refresh token: request failed: status %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("antigravity refresh token: request failed: status %d: %s", resp.StatusCode, body)
+	}
+
+	var token TokenResponse
+	if errDecode := json.NewDecoder(resp.Body).Decode(&token); errDecode != nil {
+		return nil, fmt.Errorf("antigravity refresh token: decode response: %w", errDecode)
+	}
+	// Google doesn't return a new refresh token in refresh flow, use the original one
+	if token.RefreshToken == "" {
+		token.RefreshToken = refreshToken
+	}
+	return &token, nil
+}
+
 // FetchUserInfo retrieves user email from Google
 func (o *AntigravityAuth) FetchUserInfo(ctx context.Context, accessToken string) (string, error) {
 	accessToken = strings.TrimSpace(accessToken)
