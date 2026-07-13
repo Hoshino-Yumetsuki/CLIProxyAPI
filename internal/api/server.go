@@ -1321,7 +1321,7 @@ func formatHomeClaudeModel(entry homeModelEntry) map[string]any {
 		maxOutput = registry.DefaultClaudeMaxOutputTokens
 	}
 	model := map[string]any{
-		"id":               util.EnsureClaudeModelIDPrefix(entry.id),
+		"id":               entry.id,
 		"object":           "model",
 		"owned_by":         entry.ownedBy,
 		"type":             "model",
