@@ -25,7 +25,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v8/internal/api/handlers/management"
-	claudemodels "github.com/router-for-me/CLIProxyAPI/v8/internal/client/claude/models"
 	codexmodels "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/models"
 	proxyconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
@@ -2013,23 +2012,23 @@ func TestModelsDispatchByAnthropicVersionHeader(t *testing.T) {
 		}
 
 		var claudeModel map[string]any
-		var rewrittenModel map[string]any
+		var gptModel map[string]any
 		for _, m := range resp.Data {
 			id, _ := m["id"].(string)
 			switch id {
 			case "claude-sonnet-4-6":
 				claudeModel = m
-			case "claude-fable-5-dd-o4-tpg":
-				rewrittenModel = m
-			case "gpt-4o", "claude-gpt-4o":
-				t.Fatalf("expected non-claude model id to be rewritten as claude-fable-5-dd-<reversed>, got %q", id)
+			case "gpt-4o":
+				gptModel = m
+			case "claude-gpt-4o", "claude-fable-5-dd-o4-tpg":
+				t.Fatalf("expected raw non-claude model ids on Anthropic listings, got %q", id)
 			}
 		}
 		if claudeModel == nil {
 			t.Fatalf("expected claude-sonnet-4-6 in response, got %s", rr.Body.String())
 		}
-		if rewrittenModel == nil {
-			t.Fatalf("expected claude-fable-5-dd-o4-tpg in response, got %s", rr.Body.String())
+		if gptModel == nil {
+			t.Fatalf("expected raw gpt-4o in response, got %s", rr.Body.String())
 		}
 		for _, field := range []string{"max_input_tokens", "max_tokens", "display_name"} {
 			if _, ok := claudeModel[field]; !ok {
@@ -2076,56 +2075,6 @@ func TestModelsDispatchByAnthropicVersionHeader(t *testing.T) {
 			t.Fatalf("expected raw gpt-4o in OpenAI format response, got %s", rr.Body.String())
 		}
 	})
-}
-
-func TestClaudeModelListCloakingConfigHotReload(t *testing.T) {
-	modelRegistry := registry.GetGlobalRegistry()
-	clientID := "test-claude-model-list-cloaking-hot-reload"
-	const modelID = "gpt-model-list-hot-reload"
-	modelRegistry.RegisterClient(clientID, "claude", []*registry.ModelInfo{{
-		ID: modelID, Object: "model", OwnedBy: "test", Type: "openai",
-	}})
-	t.Cleanup(func() {
-		modelRegistry.UnregisterClient(clientID)
-	})
-
-	server := newTestServer(t)
-	assertModelID := func(want string) {
-		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-		req.Header.Set("Authorization", "Bearer test-key")
-		req.Header.Set("Anthropic-Version", "2023-06-01")
-
-		recorder := httptest.NewRecorder()
-		server.engine.ServeHTTP(recorder, req)
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
-		}
-
-		var response struct {
-			Data []struct {
-				ID string `json:"id"`
-			} `json:"data"`
-		}
-		if errUnmarshal := json.Unmarshal(recorder.Body.Bytes(), &response); errUnmarshal != nil {
-			t.Fatalf("decode response: %v", errUnmarshal)
-		}
-		for _, model := range response.Data {
-			if model.ID == want {
-				return
-			}
-		}
-		t.Fatalf("model %q not found in response: %s", want, recorder.Body.String())
-	}
-
-	assertModelID(claudemodels.EnsureClaudeModelIDPrefix(modelID))
-
-	updatedCfg := *server.cfg
-	updatedCfg.SDKConfig = server.cfg.SDKConfig
-	updatedCfg.ClaudeCode.DisableCloakingModelList = true
-	server.UpdateClients(&updatedCfg)
-
-	assertModelID(modelID)
 }
 
 func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {

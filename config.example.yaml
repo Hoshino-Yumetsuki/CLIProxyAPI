@@ -530,7 +530,7 @@ upstream:
     # API-key overrides use api-keys.claude[].keys[].cloak.mode.
     disable-claude-cloak-mode: false
 
-    # When true, return original model IDs in Anthropic model list responses instead of cloaked IDs.
+    # Deprecated: model IDs are no longer rewritten in Anthropic model list responses; original IDs are always returned. This key is accepted but has no effect.
     disable-cloaking-model-list: false
 
     # Anthropic-Beta is assembled per request rather than sent as a fixed list, matching
