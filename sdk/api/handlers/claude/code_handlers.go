@@ -84,9 +84,6 @@ func (h *ClaudeCodeAPIHandler) ClaudeMessages(c *gin.Context) {
 		return
 	}
 
-	// Decode claude-fable-5-dd-<reversed> model IDs back to the real model name for routing.
-	rawJSON = rewriteClaudeDDModelInBody(rawJSON)
-
 	// Check if the client requested a streaming response.
 	streamResult := ojson.GetBytesNoCopy(rawJSON, "stream")
 	if !streamResult.Exists() || streamResult.Type == ojson.False {
@@ -116,9 +113,6 @@ func (h *ClaudeCodeAPIHandler) ClaudeCountTokens(c *gin.Context) {
 		return
 	}
 
-	// Decode claude-fable-5-dd-<reversed> model IDs back to the real model name for routing.
-	rawJSON = rewriteClaudeDDModelInBody(rawJSON)
-
 	c.Header("Content-Type", "application/json")
 
 	alt := h.GetAlt(c)
@@ -137,30 +131,13 @@ func (h *ClaudeCodeAPIHandler) ClaudeCountTokens(c *gin.Context) {
 	cliCancel()
 }
 
-// rewriteClaudeDDModelInBody decodes model IDs of the form claude-fable-5-dd-<reversed>
-// back into the original model name used for routing and upstream requests.
-func rewriteClaudeDDModelInBody(rawJSON []byte) []byte {
-	modelName := ojson.GetBytesNoCopy(rawJSON, "model").String()
-	resolved := claudemodels.ResolveClaudeModelIDPrefix(modelName)
-	if resolved == modelName {
-		return rawJSON
-	}
-	updated, errSet := ojson.SetBytes(rawJSON, "model", resolved)
-	if errSet != nil {
-		return rawJSON
-	}
-	return updated
-}
-
 // ClaudeModels handles the Claude models listing endpoint.
 // It returns a JSON response containing available Claude models and their specifications.
 //
 // Parameters:
 //   - c: The Gin context for the request.
 func (h *ClaudeCodeAPIHandler) ClaudeModels(c *gin.Context) {
-	cfg := h.CurrentConfig()
-	disableCloaking := cfg != nil && cfg.ClaudeCode.DisableCloakingModelList
-	h.WriteModelListResponse(c, h.HandlerType(), claudemodels.BuildResponse(h.Models(), disableCloaking))
+	h.WriteModelListResponse(c, h.HandlerType(), claudemodels.BuildResponse(h.Models()))
 }
 
 // handleNonStreamingResponse handles non-streaming content generation requests for Claude models.

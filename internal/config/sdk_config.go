@@ -359,7 +359,8 @@ func parseCodexWebSearchResultCacheTTL(raw string) (time.Duration, error) {
 
 // ClaudeCodeConfig configures Claude Code compatibility behavior.
 type ClaudeCodeConfig struct {
-	// DisableCloakingModelList disables model ID cloaking in Anthropic model list responses.
+	// DisableCloakingModelList is deprecated and has no effect: model IDs are
+	// no longer rewritten in Anthropic model list responses.
 	DisableCloakingModelList bool `yaml:"disable-cloaking-model-list" json:"disable-cloaking-model-list"`
 }
 
