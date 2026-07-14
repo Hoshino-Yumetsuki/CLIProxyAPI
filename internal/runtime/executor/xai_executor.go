@@ -71,9 +71,9 @@ const (
 	xaiUsingAPIAttr = "using_api"
 )
 
-// Always inject native x_search when the client did not declare it so Grok can
-// run X Search server-side. Internal subtool traces are still filtered downstream
-// when this native tool is present (see filterInternalXSearch).
+// xaiXSearchToolJSON is appended when enable-xai-x-search-inject is true and the
+// client did not already declare native x_search. Internal subtool traces are still
+// filtered downstream when native x_search is present (see filterInternalXSearch).
 var xaiXSearchToolJSON = []byte(`{"type":"x_search"}`)
 
 // XAIExecutor is a stateless executor for xAI Grok's Responses API.
@@ -905,7 +905,9 @@ func (e *XAIExecutor) prepareResponsesRequestTo(ctx context.Context, req cliprox
 	body = normalizeXAINamespaceToolChoice(body)
 	body = pruneXAIOrphanedToolChoice(body)
 	body = normalizeXAIToolChoiceForTools(body)
-	body = ensureXAINativeXSearchTool(body)
+	if e.cfg != nil && e.cfg.EnableXAIXSearchInject {
+		body = ensureXAINativeXSearchTool(body)
+	}
 	var replayScope xaiReasoningReplayScope
 	body, replayScope, err = applyXAIReasoningReplayCacheRequired(ctx, from, req, opts, body)
 	if err != nil {

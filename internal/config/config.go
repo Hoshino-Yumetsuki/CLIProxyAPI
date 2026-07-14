@@ -128,6 +128,10 @@ type Config struct {
 	// XAIKey defines xAI API key configurations using the same structure as Codex API keys.
 	XAIKey []XAIKey `yaml:"xai-api-key" json:"xai-api-key"`
 
+	// EnableXAIXSearchInject appends native {"type":"x_search"} to xAI/Grok Responses
+	// requests when the client did not already declare it. Default false.
+	EnableXAIXSearchInject bool `yaml:"enable-xai-x-search-inject" json:"enable-xai-x-search-inject"`
+
 	// Codex configures provider-wide Codex request behavior.
 	Codex CodexConfig `yaml:"codex" json:"codex"`
 

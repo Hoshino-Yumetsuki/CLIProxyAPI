@@ -58,7 +58,7 @@ func TestXAIExecutorExecuteShapesResponsesRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewXAIExecutor(&config.Config{})
+	exec := NewXAIExecutor(&config.Config{EnableXAIXSearchInject: true})
 	auth := &cliproxyauth.Auth{
 		ID:       "xai-auth",
 		Provider: "xai",
@@ -554,6 +554,28 @@ func TestEnsureXAINativeXSearchTool(t *testing.T) {
 	}
 	if xSearchAllowed != 1 {
 		t.Fatalf("allowed_tools x_search count = %d, want 1; body=%s", xSearchAllowed, out)
+	}
+}
+
+func TestPrepareResponsesRequestTo_XSearchInjectDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	exec := NewXAIExecutor(&config.Config{})
+	prepared, err := exec.prepareResponsesRequestTo(
+		context.Background(),
+		cliproxyexecutor.Request{
+			Model:   "grok-4.5",
+			Payload: []byte(`{"model":"grok-4.5","input":"hi"}`),
+		},
+		cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse},
+		false,
+		sdktranslator.FormatOpenAIResponse,
+	)
+	if err != nil {
+		t.Fatalf("prepareResponsesRequestTo() error = %v", err)
+	}
+	if gjson.GetBytes(prepared.body, `tools.#(type=="x_search")`).Exists() {
+		t.Fatalf("x_search should not be injected when enable-xai-x-search-inject is false; body=%s", prepared.body)
 	}
 }
 

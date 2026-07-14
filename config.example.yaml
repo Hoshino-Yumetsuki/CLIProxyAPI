@@ -265,6 +265,10 @@ nonstream-keepalive-interval: 0
 #       - "*-mini"          # wildcard matching suffix (e.g. gpt-5-codex-mini)
 #       - "*codex*"         # wildcard matching substring (e.g. gpt-5-codex-low)
 
+# When true, inject native {"type":"x_search"} on xAI/Grok Responses requests that did
+# not already declare it (Grok/X Search server-side). Default false.
+# enable-xai-x-search-inject: false
+
 # xAI API keys
 # Uses the native xAI executor, including its Responses namespace-tool handling.
 # xai-api-key:
