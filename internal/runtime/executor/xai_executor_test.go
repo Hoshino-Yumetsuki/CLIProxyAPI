@@ -1211,6 +1211,22 @@ func TestXAIExecutorPrepareStripsUnsupportedWebSearchOptions(t *testing.T) {
 	}
 }
 
+func TestPrepareResponsesRequestTo_XSearchInjectDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	exec := NewXAIExecutor(&config.Config{})
+	prepared, errPrepare := exec.prepareResponsesRequest(context.Background(), cliproxyexecutor.Request{
+		Model:   "grok-4.5",
+		Payload: []byte(`{"model":"grok-4.5","input":"hi"}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse}, false)
+	if errPrepare != nil {
+		t.Fatalf("prepareResponsesRequest() error = %v", errPrepare)
+	}
+	if ojson.GetBytes(prepared.body, `tools.#(type=="x_search")`).Exists() {
+		t.Fatalf("x_search should not be injected by default; body=%s", prepared.body)
+	}
+}
+
 func TestPruneXAIOrphanedToolChoice(t *testing.T) {
 	t.Parallel()
 
