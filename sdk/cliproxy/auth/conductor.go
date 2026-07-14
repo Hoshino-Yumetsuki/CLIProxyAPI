@@ -3916,6 +3916,59 @@ func modelStateIsClean(state *ModelState) bool {
 	return true
 }
 
+func modelStateActivelyUnavailable(state *ModelState, now time.Time) bool {
+	if state == nil {
+		return false
+	}
+	if state.Status == StatusDisabled {
+		return true
+	}
+	if !state.Unavailable {
+		return false
+	}
+	if state.NextRetryAfter.IsZero() {
+		return false
+	}
+	if state.NextRetryAfter.After(now) {
+		return true
+	}
+	return false
+}
+
+// antigravityHasOtherAvailableRegisteredModels reports whether this antigravity auth
+// still has at least one registry model that is not in an active per-model cooldown.
+// One credential serves both Claude and Gemini; partial ModelStates must not mark the
+// whole auth unavailable when only one family hit quota.
+func antigravityHasOtherAvailableRegisteredModels(auth *Auth, now time.Time) bool {
+	if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "antigravity") {
+		return false
+	}
+	registered := modelsForRegisteredAuth(auth.ID)
+	if len(registered) <= 1 {
+		return false
+	}
+	for _, modelID := range registered {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		state, ok := auth.ModelStates[modelID]
+		if !ok || state == nil {
+			base := canonicalModelKey(modelID)
+			if base != "" && base != modelID {
+				state, ok = auth.ModelStates[base]
+			}
+		}
+		if !ok || state == nil {
+			return true
+		}
+		if !modelStateActivelyUnavailable(state, now) {
+			return true
+		}
+	}
+	return false
+}
+
 func updateAggregatedAvailability(auth *Auth, now time.Time) {
 	if auth == nil {
 		return
@@ -3968,17 +4021,20 @@ func updateAggregatedAvailability(auth *Auth, now time.Time) {
 		clearAggregatedAvailability(auth)
 		return
 	}
-	auth.Unavailable = allUnavailable
-	if allUnavailable {
+	partialAntigravity := antigravityHasOtherAvailableRegisteredModels(auth, now)
+	auth.Unavailable = allUnavailable && !partialAntigravity
+	if auth.Unavailable {
 		auth.NextRetryAfter = earliestRetry
 	} else {
 		auth.NextRetryAfter = time.Time{}
 	}
-	if quotaExceeded {
+	if quotaExceeded && !partialAntigravity {
 		auth.Quota.Exceeded = true
 		auth.Quota.Reason = "quota"
 		auth.Quota.NextRecoverAt = quotaRecover
 		auth.Quota.BackoffLevel = maxBackoffLevel
+	} else if partialAntigravity {
+		auth.Quota = QuotaState{}
 	} else {
 		auth.Quota.Exceeded = false
 		auth.Quota.Reason = ""
