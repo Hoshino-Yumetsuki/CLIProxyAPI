@@ -63,6 +63,56 @@ func TestUpdateAggregatedAvailability_FutureNextRetryBlocksAuth(t *testing.T) {
 	}
 }
 
+func TestUpdateAggregatedAvailability_AntigravityClaudeCooldownLeavesAuthAvailableWhenGeminiRegistered(t *testing.T) {
+	t.Parallel()
+
+	const authID = "ag-multi"
+	claudeModel := "claude-sonnet-4-6"
+	geminiModel := "gemini-3-flash"
+	reg := registry.GetGlobalRegistry()
+	reg.RegisterClient(authID, "antigravity", []*registry.ModelInfo{
+		{ID: claudeModel},
+		{ID: geminiModel},
+	})
+	t.Cleanup(func() { reg.UnregisterClient(authID) })
+
+	now := time.Now()
+	next := now.Add(10 * time.Minute)
+	auth := &Auth{
+		ID:       authID,
+		Provider: "antigravity",
+		ModelStates: map[string]*ModelState{
+			claudeModel: {
+				Status:         StatusError,
+				Unavailable:    true,
+				NextRetryAfter: next,
+				Quota: QuotaState{
+					Exceeded:      true,
+					Reason:        "quota",
+					NextRecoverAt: next,
+				},
+			},
+		},
+	}
+
+	updateAggregatedAvailability(auth, now)
+
+	if auth.Unavailable {
+		t.Fatalf("auth.Unavailable = true, want false when only claude is in cooldown and gemini is registered")
+	}
+	if auth.Quota.Exceeded {
+		t.Fatalf("auth.Quota.Exceeded = true, want false for partial antigravity model quota")
+	}
+	blocked, _, _ := isAuthBlockedForModel(auth, geminiModel, now)
+	if blocked {
+		t.Fatalf("gemini model should not be blocked when only claude is in cooldown")
+	}
+	blockedClaude, reason, _ := isAuthBlockedForModel(auth, claudeModel, now)
+	if !blockedClaude || reason != blockReasonCooldown {
+		t.Fatalf("claude should stay blocked, got blocked=%v reason=%v", blockedClaude, reason)
+	}
+}
+
 func TestManager_AvailableProvidersAndHasProviderAuth_ExcludeDisabled(t *testing.T) {
 	manager := NewManager(nil, nil, nil)
 	ctx := context.Background()
