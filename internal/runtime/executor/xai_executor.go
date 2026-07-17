@@ -65,8 +65,9 @@ const (
 	xaiTokenAuthHeader          = "X-XAI-Token-Auth"
 	xaiTokenAuthValue           = "xai-grok-cli"
 	xaiClientVersionHeader      = "x-grok-client-version"
-	// Keep in sync with the current Grok CLI client version that chat-proxy expects.
-	xaiClientVersionValue = "0.2.93"
+	// Fallback only; live chat-proxy identity uses helps.ResolveXAIDeviceProfile.
+	// Keep in sync with xai-org/grok-build xai-grok-version when practical.
+	xaiClientVersionValue = "0.2.101"
 	// xaiUsingAPIAttr enables the official API path for non-media HTTP chat.
 	xaiUsingAPIAttr = "using_api"
 )
@@ -89,6 +90,25 @@ func NewXAIExecutor(cfg *config.Config) *XAIExecutor {
 // Identifier returns the provider identifier.
 func (e *XAIExecutor) Identifier() string {
 	return "xai"
+}
+
+// ShouldPrepareRequestAuth reports whether the xAI auth is missing a device_profile
+// that should be generated and written into the credential JSON.
+func (e *XAIExecutor) ShouldPrepareRequestAuth(auth *cliproxyauth.Auth) bool {
+	return helps.XAIDeviceProfileMissing(auth)
+}
+
+// PrepareRequestAuth generates and attaches a device_profile to auth.Metadata
+// when missing. Manager.Update persists it to the credential file.
+func (e *XAIExecutor) PrepareRequestAuth(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+	if auth == nil || !e.ShouldPrepareRequestAuth(auth) {
+		return auth, nil
+	}
+	updated := auth.Clone()
+	if _, changed := helps.EnsureXAIDeviceProfileInAuth(updated); !changed {
+		return auth, nil
+	}
+	return updated, nil
 }
 
 // PrepareRequest injects xAI credentials into the outgoing HTTP request.
@@ -153,7 +173,7 @@ func (e *XAIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req 
 	if err != nil {
 		return resp, err
 	}
-	applyXAIChatHeaders(httpReq, auth, token, true, prepared.sessionID)
+	applyXAIChatHeaders(httpReq, auth, token, true, prepared.sessionID, prepared.baseModel)
 	e.recordXAIRequest(ctx, auth, url, httpReq.Header.Clone(), prepared.body)
 
 	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -634,7 +654,7 @@ func (e *XAIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth
 	if err != nil {
 		return nil, err
 	}
-	applyXAIChatHeaders(httpReq, auth, token, true, prepared.sessionID)
+	applyXAIChatHeaders(httpReq, auth, token, true, prepared.sessionID, prepared.baseModel)
 	e.recordXAIRequest(ctx, auth, url, httpReq.Header.Clone(), prepared.body)
 
 	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -1128,19 +1148,17 @@ func applyXAICustomHeaders(r *http.Request, auth *cliproxyauth.Auth) {
 
 // applyXAIChatHeaders applies standard xAI headers for non-image/video chat
 // requests. When using_api is true, this matches the standard
-// applyXAIHeaders behavior. CLI chat-proxy identity headers are only attached
-// when using_api is false and the resolved chat base URL is the official CLI
-// chat-proxy endpoint.
-func applyXAIChatHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID string) {
+// applyXAIHeaders behavior. CLI chat-proxy identity headers (grok-build client
+// simulation + per-auth device profile) are only attached when using_api is
+// false and the resolved chat base URL is the official CLI chat-proxy endpoint.
+func applyXAIChatHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID, model string) {
 	if xaiUsingAPI(auth) {
 		applyXAIHeaders(r, auth, token, stream, sessionID)
 		return
 	}
 	applyXAIDefaultHeaders(r, token, stream, sessionID)
 	if xaiIsCLIChatProxyBaseURL(xaiChatBaseURL(auth)) {
-		r.Header.Set(xaiTokenAuthHeader, xaiTokenAuthValue)
-		r.Header.Set(xaiClientVersionHeader, xaiClientVersionValue)
-		r.Header.Set("User-Agent", "xai-grok-workspace/"+xaiClientVersionValue)
+		helps.ApplyXAIGrokBuildIdentityHeaders(r, auth, model, sessionID)
 	}
 	applyXAICustomHeaders(r, auth)
 }
