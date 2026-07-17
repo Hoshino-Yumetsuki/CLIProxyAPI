@@ -9,6 +9,7 @@ import (
 	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/browser"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
@@ -117,7 +118,7 @@ func (a XAIAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *L
 
 	fmt.Println("xAI authentication successful")
 
-	return &coreauth.Auth{
+	auth := &coreauth.Auth{
 		ID:       fileName,
 		Provider: a.Provider(),
 		FileName: fileName,
@@ -128,5 +129,8 @@ func (a XAIAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *L
 			"auth_kind": "oauth",
 			"base_url":  tokenStorage.BaseURL,
 		},
-	}, nil
+	}
+	// Stamp a stable Grok Build device_profile into the credential JSON at login.
+	helps.EnsureXAIDeviceProfileInAuth(auth)
+	return auth, nil
 }

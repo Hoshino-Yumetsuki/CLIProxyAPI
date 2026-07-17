@@ -21,6 +21,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/redisqueue"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/diff"
@@ -686,6 +687,11 @@ func (s *Service) prepareCoreAuthForModelRegistration(ctx context.Context, auth 
 		return nil
 	}
 	auth = auth.Clone()
+	// Generate and persist Grok device_profile into credential JSON when missing
+	// so multi-account xAI auths keep stable client fingerprints across restarts.
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), "xai") {
+		helps.EnsureXAIDeviceProfileInAuth(auth)
+	}
 	s.ensureExecutorsForAuth(auth)
 
 	// IMPORTANT: Update coreManager FIRST, before model registration.
