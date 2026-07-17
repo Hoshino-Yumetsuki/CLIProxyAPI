@@ -404,18 +404,13 @@ func applyXAICustomHeaders(r *http.Request, auth *cliproxyauth.Auth, clientHeade
 // User-Agent or falling back to the Grok workspace User-Agent). CLI chat-proxy
 // identity headers are only attached when using_api is false and the resolved
 // chat base URL is the official CLI chat-proxy endpoint.
-func applyXAIChatHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID string, clientHeaders ...http.Header) {
+func applyXAIChatHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID, model string, clientHeaders ...http.Header) {
 	if xaiUsingAPI(auth) || !xaiIsCLIChatProxyBaseURL(xaiChatBaseURL(auth)) {
 		applyXAIHeaders(r, auth, token, stream, sessionID, clientHeaders...)
 		return
 	}
 	applyXAIDefaultHeaders(r, token, stream, sessionID)
-	clientVer := xaiClientVersion()
-	r.Header.Set(xaiTokenAuthHeader, xaiTokenAuthValue)
-	r.Header.Set(xaiClientVersionHeader, clientVer)
-	r.Header.Set("User-Agent", "xai-grok-workspace/"+clientVer)
-	r.Header.Set(xaiClientIdentifierHeader, xaiClientIdentifierValue)
-	r.Header.Set(xaiAuthenticateResponseHeader, xaiAuthenticateResponseValue)
+	helps.ApplyXAIGrokBuildIdentityHeaders(r, auth, model, sessionID)
 	applyXAICustomHeaders(r, auth, clientHeaders...)
 }
 

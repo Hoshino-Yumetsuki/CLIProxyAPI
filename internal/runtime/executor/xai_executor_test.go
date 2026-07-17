@@ -6753,7 +6753,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		auth := &cliproxyauth.Auth{
 			Attributes: map[string]string{"base_url": xaiauth.DefaultAPIBaseURL},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1", "grok-build")
 
 		if got := req.Header.Get("Authorization"); got != "Bearer xai-token" {
 			t.Fatalf("Authorization = %q, want Bearer xai-token", got)
@@ -6780,12 +6780,13 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 	t.Run("OAuth defaults to cli chat proxy headers", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "https://example.invalid/responses", nil)
 		auth := &cliproxyauth.Auth{
+			ID: "auth-a",
 			Attributes: map[string]string{
 				"auth_kind": "oauth",
 				"base_url":  xaiauth.DefaultAPIBaseURL,
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1", "grok-build")
 
 		if got := req.Header.Get("Authorization"); got != "Bearer xai-token" {
 			t.Fatalf("Authorization = %q, want Bearer xai-token", got)
@@ -6799,14 +6800,32 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		if got := req.Header.Get(xaiClientVersionHeader); got != xaiClientVersionValue {
 			t.Fatalf("%s = %q, want %q", xaiClientVersionHeader, got, xaiClientVersionValue)
 		}
-		if got := req.Header.Get("x-grok-client-identifier"); got != "grok-shell" {
-			t.Fatalf("x-grok-client-identifier = %q, want grok-shell", got)
+		if got := req.Header.Get("x-grok-client-identifier"); got != "xai-grok-workspace" {
+			t.Fatalf("x-grok-client-identifier = %q, want xai-grok-workspace", got)
 		}
 		if got := req.Header.Get("x-authenticateresponse"); got != "authenticate-response" {
 			t.Fatalf("x-authenticateresponse = %q, want authenticate-response", got)
 		}
 		if got := req.Header.Get("User-Agent"); got != "xai-grok-workspace/"+xaiClientVersionValue {
 			t.Fatalf("User-Agent = %q, want xai-grok-workspace/%s", got, xaiClientVersionValue)
+		}
+		if got := req.Header.Get("x-authenticateresponse"); got != "authenticate-response" {
+			t.Fatalf("x-authenticateresponse = %q, want authenticate-response", got)
+		}
+		if got := req.Header.Get("x-grok-client-identifier"); got == "" {
+			t.Fatal("x-grok-client-identifier is empty")
+		}
+		if got := req.Header.Get("x-grok-agent-id"); got == "" {
+			t.Fatal("x-grok-agent-id is empty")
+		}
+		if got := req.Header.Get("x-grok-session-id"); got == "" {
+			t.Fatal("x-grok-session-id is empty")
+		}
+		if got := req.Header.Get("x-grok-req-id"); got == "" {
+			t.Fatal("x-grok-req-id is empty")
+		}
+		if got := req.Header.Get("x-grok-model-override"); got != "grok-build" {
+			t.Fatalf("x-grok-model-override = %q, want grok-build", got)
 		}
 	})
 
@@ -6818,7 +6837,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				xaiUsingAPIAttr: "false",
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", false, "")
+		applyXAIChatHeaders(req, auth, "xai-token", false, "", "")
 
 		if got := req.Header.Get(xaiTokenAuthHeader); got != "" {
 			t.Fatalf("%s = %q, want empty for custom gateway", xaiTokenAuthHeader, got)
@@ -6843,7 +6862,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		apiAuth := &cliproxyauth.Auth{
 			Attributes: map[string]string{"base_url": xaiauth.DefaultAPIBaseURL},
 		}
-		applyXAIChatHeaders(apiReq, apiAuth, "xai-token", true, "conv-1", clientHeaders)
+		applyXAIChatHeaders(apiReq, apiAuth, "xai-token", true, "conv-1", "grok-build", clientHeaders)
 		if got := apiReq.Header.Get("User-Agent"); got != "downstream-client/2.0" {
 			t.Fatalf("official API User-Agent = %q, want downstream-client/2.0", got)
 		}
@@ -6855,7 +6874,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				xaiUsingAPIAttr: "false",
 			},
 		}
-		applyXAIChatHeaders(customReq, customAuth, "xai-token", false, "", clientHeaders)
+		applyXAIChatHeaders(customReq, customAuth, "xai-token", false, "", "grok-build", clientHeaders)
 		if got := customReq.Header.Get("User-Agent"); got != "downstream-client/2.0" {
 			t.Fatalf("custom gateway User-Agent = %q, want downstream-client/2.0", got)
 		}
@@ -6867,7 +6886,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				"base_url":  xaiauth.DefaultAPIBaseURL,
 			},
 		}
-		applyXAIChatHeaders(proxyReq, proxyAuth, "xai-token", true, "conv-1", clientHeaders)
+		applyXAIChatHeaders(proxyReq, proxyAuth, "xai-token", true, "conv-1", "grok-build", clientHeaders)
 		if got, want := proxyReq.Header.Get("User-Agent"), "xai-grok-workspace/"+xaiClientVersionValue; got != want {
 			t.Fatalf("CLI chat proxy User-Agent = %q, want %q", got, want)
 		}
@@ -6885,7 +6904,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				"header:x-authenticateresponse":    "custom-authenticate-response",
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "", "")
 
 		if got := req.Header.Get(xaiTokenAuthHeader); got != "custom-token-auth" {
 			t.Fatalf("%s = %q, want custom-token-auth", xaiTokenAuthHeader, got)
@@ -6909,13 +6928,51 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				xaiUsingAPIAttr: "false",
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "", "grok-build")
 
 		if got := req.Header.Get(xaiTokenAuthHeader); got != xaiTokenAuthValue {
 			t.Fatalf("%s = %q, want %q", xaiTokenAuthHeader, got, xaiTokenAuthValue)
 		}
 		if got := req.Header.Get(xaiClientVersionHeader); got != xaiClientVersionValue {
 			t.Fatalf("%s = %q, want %q", xaiClientVersionHeader, got, xaiClientVersionValue)
+		}
+	})
+
+	t.Run("device profile isolated per auth", func(t *testing.T) {
+		authA := &cliproxyauth.Auth{
+			ID: "xai-account-a",
+			Attributes: map[string]string{
+				"auth_kind": "oauth",
+				"base_url":  xaiauth.CLIChatProxyBaseURL,
+			},
+		}
+		authB := &cliproxyauth.Auth{
+			ID: "xai-account-b",
+			Attributes: map[string]string{
+				"auth_kind": "oauth",
+				"base_url":  xaiauth.CLIChatProxyBaseURL,
+			},
+		}
+		reqA := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
+		reqB := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
+		applyXAIChatHeaders(reqA, authA, "token-a", true, "conv-a", "grok-build")
+		applyXAIChatHeaders(reqB, authB, "token-b", true, "conv-b", "grok-build")
+
+		if reqA.Header.Get("x-grok-agent-id") == "" || reqB.Header.Get("x-grok-agent-id") == "" {
+			t.Fatal("expected agent ids")
+		}
+		if reqA.Header.Get("x-grok-agent-id") == reqB.Header.Get("x-grok-agent-id") {
+			t.Fatalf("agent ids should differ across accounts: both %q", reqA.Header.Get("x-grok-agent-id"))
+		}
+		if reqA.Header.Get("x-grok-session-id") == reqB.Header.Get("x-grok-session-id") {
+			t.Fatalf("session ids should differ across accounts: both %q", reqA.Header.Get("x-grok-session-id"))
+		}
+		// Stable across calls for the same auth.
+		reqA2 := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
+		applyXAIChatHeaders(reqA2, authA, "token-a", true, "conv-a2", "grok-build")
+		if reqA.Header.Get("x-grok-agent-id") != reqA2.Header.Get("x-grok-agent-id") {
+			t.Fatalf("agent id not stable for same auth: %q vs %q",
+				reqA.Header.Get("x-grok-agent-id"), reqA2.Header.Get("x-grok-agent-id"))
 		}
 	})
 }

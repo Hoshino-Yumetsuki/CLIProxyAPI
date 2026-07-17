@@ -2620,7 +2620,7 @@ func TestXAIWebsocketApplyPatchIncompleteEOF(t *testing.T) {
 
 func TestApplyXAIWebsocketHeaders_UserAgent(t *testing.T) {
 	t.Run("defaults to Grok workspace User-Agent when downstream User-Agent is absent", func(t *testing.T) {
-		headers := applyXAIWebsocketHeaders(context.Background(), nil, &cliproxyauth.Auth{Provider: "xai"}, "token", "sess-1")
+		headers := applyXAIWebsocketHeaders(context.Background(), nil, &cliproxyauth.Auth{Provider: "xai"}, "token", "sess-1", "")
 		if got, want := headers.Get("User-Agent"), "xai-grok-workspace/"+xaiClientVersion(); got != want {
 			t.Fatalf("User-Agent = %q, want %q", got, want)
 		}
@@ -2628,7 +2628,7 @@ func TestApplyXAIWebsocketHeaders_UserAgent(t *testing.T) {
 
 	t.Run("forwards downstream User-Agent when provided", func(t *testing.T) {
 		clientHeaders := http.Header{"User-Agent": []string{"ws-downstream-client/1.0"}}
-		headers := applyXAIWebsocketHeaders(context.Background(), nil, &cliproxyauth.Auth{Provider: "xai"}, "token", "sess-1", clientHeaders)
+		headers := applyXAIWebsocketHeaders(context.Background(), nil, &cliproxyauth.Auth{Provider: "xai"}, "token", "sess-1", "", clientHeaders)
 		if got := headers.Get("User-Agent"); got != "ws-downstream-client/1.0" {
 			t.Fatalf("User-Agent = %q, want ws-downstream-client/1.0", got)
 		}
@@ -2642,7 +2642,7 @@ func TestApplyXAIWebsocketHeaders_UserAgent(t *testing.T) {
 				"header:User-Agent": "ws-custom-ua/2.0",
 			},
 		}
-		headers := applyXAIWebsocketHeaders(context.Background(), nil, auth, "token", "sess-1", clientHeaders)
+		headers := applyXAIWebsocketHeaders(context.Background(), nil, auth, "token", "sess-1", "", clientHeaders)
 		if got := headers.Get("User-Agent"); got != "ws-custom-ua/2.0" {
 			t.Fatalf("User-Agent = %q, want ws-custom-ua/2.0", got)
 		}
