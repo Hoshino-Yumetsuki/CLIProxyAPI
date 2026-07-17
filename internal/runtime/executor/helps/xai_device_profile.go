@@ -8,12 +8,11 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
 // Keep in sync with xai-org/grok-build xai-grok-version package when practical.
 const (
-	defaultXAIClientVersion    = "0.2.101"
 	defaultXAIClientIdentifier = "xai-grok-workspace"
 	defaultXAIClientMode       = "headless"
 	defaultXAITokenAuthValue   = "xai-grok-cli"
@@ -38,7 +37,7 @@ type XAIDeviceProfile struct {
 func (p XAIDeviceProfile) UserAgent() string {
 	version := strings.TrimSpace(p.ClientVersion)
 	if version == "" {
-		version = defaultXAIClientVersion
+		version = GetXAIClientVersion()
 	}
 	return "xai-grok-workspace/" + version
 }
@@ -168,7 +167,7 @@ func deviceProfileEqual(a, b XAIDeviceProfile) bool {
 
 func synthesizeXAIDeviceProfile(scope string) XAIDeviceProfile {
 	return normalizeXAIDeviceProfile(XAIDeviceProfile{
-		ClientVersion:    defaultXAIClientVersion,
+		ClientVersion:    GetXAIClientVersion(),
 		ClientIdentifier: defaultXAIClientIdentifier,
 		ClientMode:       defaultXAIClientMode,
 		AgentID:          stableXAIUUID("xai-agent", scope),
@@ -180,7 +179,7 @@ func synthesizeXAIDeviceProfile(scope string) XAIDeviceProfile {
 
 func normalizeXAIDeviceProfile(profile XAIDeviceProfile, scope string) XAIDeviceProfile {
 	if strings.TrimSpace(profile.ClientVersion) == "" {
-		profile.ClientVersion = defaultXAIClientVersion
+		profile.ClientVersion = GetXAIClientVersion()
 	}
 	if strings.TrimSpace(profile.ClientIdentifier) == "" {
 		profile.ClientIdentifier = defaultXAIClientIdentifier

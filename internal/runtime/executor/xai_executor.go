@@ -54,12 +54,8 @@ const (
 	// expects. The server rejects older versions with HTTP 426; it required
 	// 1.0.13+ as of 2026-10-01 (#6249).
 	// This hardcoded value serves as fallback if npm registry resolution fails.
-	xaiClientVersionFallback      = helps.DefaultXAIFallbackClientVersion
-	xaiClientVersionValue         = xaiClientVersionFallback
-	xaiClientIdentifierHeader     = "x-grok-client-identifier"
-	xaiClientIdentifierValue      = "grok-shell"
-	xaiAuthenticateResponseHeader = "x-authenticateresponse"
-	xaiAuthenticateResponseValue  = "authenticate-response"
+	xaiClientVersionFallback = helps.DefaultXAIFallbackClientVersion
+	xaiClientVersionValue    = xaiClientVersionFallback
 	// xaiUsingAPIAttr enables the official API path for HTTP chat and media.
 	xaiUsingAPIAttr = "using_api"
 )
@@ -93,6 +89,25 @@ func StartXAIVersionUpdater(ctx context.Context, proxyURL string) {
 // Identifier returns the provider identifier.
 func (e *XAIExecutor) Identifier() string {
 	return "xai"
+}
+
+// ShouldPrepareRequestAuth reports whether the xAI auth is missing a device_profile
+// that should be generated and written into the credential JSON.
+func (e *XAIExecutor) ShouldPrepareRequestAuth(auth *cliproxyauth.Auth) bool {
+	return helps.XAIDeviceProfileMissing(auth)
+}
+
+// PrepareRequestAuth generates and attaches a device_profile to auth.Metadata
+// when missing. Manager.Update persists it to the credential file.
+func (e *XAIExecutor) PrepareRequestAuth(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+	if auth == nil || !e.ShouldPrepareRequestAuth(auth) {
+		return auth, nil
+	}
+	updated := auth.Clone()
+	if _, changed := helps.EnsureXAIDeviceProfileInAuth(updated); !changed {
+		return auth, nil
+	}
+	return updated, nil
 }
 
 // PrepareRequest injects xAI credentials into the outgoing HTTP request.

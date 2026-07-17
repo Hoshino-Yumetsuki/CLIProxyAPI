@@ -47,7 +47,7 @@ func TestXAIChatProxyIdentityHeadersDeriveFromOneConstant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyXAIChatHeaders(req, auth, "token", false, "")
+	applyXAIChatHeaders(req, auth, "token", false, "", "")
 
 	if got := req.Header.Get(xaiClientVersionHeader); got != xaiClientVersionValue {
 		t.Fatalf("%s = %q, want %q", xaiClientVersionHeader, got, xaiClientVersionValue)
@@ -69,7 +69,7 @@ func TestXAIChatProxyCustomHeadersOverridePinnedVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyXAIChatHeaders(req, auth, "token", false, "")
+	applyXAIChatHeaders(req, auth, "token", false, "", "")
 
 	if got := req.Header.Get(xaiClientVersionHeader); got != "9.9.9" {
 		t.Fatalf("%s = %q, want the per-auth custom header to override the pin", xaiClientVersionHeader, got)
@@ -88,7 +88,7 @@ func TestXAIChatProxyIdentityHeadersFollowDynamicVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyXAIChatHeaders(req, auth, "token", false, "")
+	applyXAIChatHeaders(req, auth, "token", false, "", "")
 
 	if got := req.Header.Get(xaiClientVersionHeader); got != "1.2.34" {
 		t.Fatalf("%s = %q, want dynamic version 1.2.34", xaiClientVersionHeader, got)
