@@ -156,6 +156,10 @@ type Service struct {
 	antigravityRefreshPending map[string]*antigravityModelRefreshRequest
 	antigravityPersistPending map[string]*antigravityHintPersistRequest
 	antigravityPersistActive  map[string]*antigravityHintPersistRequest
+
+	// liveModelCache stores last-success per-auth upstream model lists (mem + disk).
+	liveModelCacheMu sync.RWMutex
+	liveModelCache   map[string]liveModelCacheEntry
 }
 
 // SetResultPolicy sets an execution result policy on the underlying core auth manager.
