@@ -62,7 +62,17 @@ func TestAntigravityDynamicRegistrationLifecycle(t *testing.T) {
 	t.Cleanup(func() { GlobalModelRegistry().UnregisterClient(auth.ID) })
 	svc.registerModelsForAuth(t.Context(), auth)
 	svc.WaitAntigravityProbes()
-	assertModels := func(want bool) {
+	fullCatalog := map[string]bool{
+		"my-model":             true,
+		"tenant/my-model":      true,
+		"not-in-static":        true,
+		"tenant/not-in-static": true,
+	}
+	allowedOnlyCatalog := map[string]bool{
+		"my-model":        true,
+		"tenant/my-model": true,
+	}
+	assertModels := func(want bool, expect map[string]bool) {
 		t.Helper()
 		models := GlobalModelRegistry().GetModelsForClient(auth.ID)
 		if !want {
@@ -71,19 +81,19 @@ func TestAntigravityDynamicRegistrationLifecycle(t *testing.T) {
 			}
 			return
 		}
-		if len(models) != 2 {
-			t.Fatalf("expected alias and prefixed alias, got %v", models)
+		if len(models) != len(expect) {
+			t.Fatalf("expected catalog %v, got %v", expect, models)
 		}
 		for _, m := range models {
-			if m.ID != "my-model" && m.ID != "tenant/my-model" {
+			if !expect[m.ID] {
 				t.Fatalf("unentitled model %s", m.ID)
 			}
-			if m.ContextLength <= 1 || !m.SupportsWebSearch {
-				t.Fatalf("lost static info or fetched capability: %+v", m)
+			if (m.ID == "my-model" || m.ID == "tenant/my-model") && !m.SupportsWebSearch {
+				t.Fatalf("lost fetched web search capability: %+v", m)
 			}
 		}
 	}
-	assertModels(true)
+	assertModels(true, fullCatalog)
 	svc.refreshAntigravityModels(t.Context())
 	svc.WaitAntigravityProbes()
 	if calls.Load() != 1 {
@@ -103,27 +113,28 @@ func TestAntigravityDynamicRegistrationLifecycle(t *testing.T) {
 	status.Store(403)
 	svc.refreshAntigravityModels(t.Context())
 	svc.WaitAntigravityProbes()
-	assertModels(true)
+	assertModels(true, fullCatalog)
 	// A successful empty catalog revokes all registrations, without disabling the auth.
 	expire()
 	status.Store(200)
 	response.Store(map[string]any{"models": map[string]any{}})
 	svc.refreshAntigravityModels(t.Context())
 	svc.WaitAntigravityProbes()
-	assertModels(false)
+	assertModels(false, allowedOnlyCatalog)
 	current, _ := manager.GetByID(auth.ID)
 	if current.Disabled {
 		t.Fatal("empty catalog disabled credential")
 	}
-	// Registration from cache must not temporarily restore static-only models.
+	// Registration from the last-success live cache must not restore static-only models;
+	// the upstream remains empty, so the re-published catalog is the cached live one.
 	svc.registerModelsForAuth(t.Context(), current)
 	svc.WaitAntigravityProbes()
-	assertModels(false)
+	assertModels(false, allowedOnlyCatalog)
 	expire()
 	response.Store(map[string]any{"models": map[string]any{allowed: map[string]any{}}, "webSearchModelIds": []string{allowed}})
 	svc.refreshAntigravityModels(t.Context())
 	svc.WaitAntigravityProbes()
-	assertModels(true)
+	assertModels(true, allowedOnlyCatalog)
 	if len(registry.GetAntigravityModels()) < 3 {
 		t.Fatal("static catalog mutated")
 	}

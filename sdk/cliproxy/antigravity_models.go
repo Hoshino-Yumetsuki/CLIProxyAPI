@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"maps"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,7 +18,11 @@ import (
 	sdkauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/MoeForge/moego/ojson"
 )
 
 const (
@@ -356,21 +362,18 @@ func (s *Service) fetchAntigravityModelCapabilityHints(ctx context.Context, auth
 }
 
 func (s *Service) probeAntigravityModelCapabilityHints(ctx context.Context, auth *coreauth.Auth, baseURLs []string, proxyURL, accessToken, userAgent string) (antigravityModelCapabilityHints, antigravityProbeStatus) {
-	project := ""
-	if auth != nil && auth.Metadata != nil {
-		project, _ = auth.Metadata["project_id"].(string)
+	result, err := s.fetchAntigravityLiveModelsForAuth(ctx, auth)
+	if err != nil {
+		emsg := strings.ToLower(err.Error())
+		if strings.Contains(emsg, "401") || strings.Contains(emsg, "403") {
+			return antigravityModelCapabilityHints{}, antigravityProbeStatusAuthError
+		}
+		return antigravityModelCapabilityHints{}, antigravityProbeStatusTransientError
 	}
-	hints, status := sdkauth.FetchAntigravityAvailableModels(ctx, sdkauth.AntigravityModelProbeRequest{
-		BaseURLs:    baseURLs,
-		ProxyURL:    proxyURL,
-		AccessToken: accessToken,
-		ProjectID:   project,
-		UserAgent:   userAgent,
-	})
-	return antigravityModelCapabilityHints{
-		ModelIDs:          hints.ModelIDs,
-		WebSearchModelIDs: hints.WebSearchModelIDs,
-	}, status
+	if len(result.Models) > 0 {
+		s.storeLiveModelCache(auth.ID, "antigravity", result.Models)
+	}
+	return result.Hints, antigravityProbeStatusSuccess
 }
 
 func (s *Service) antigravityModelFetchProxyURL(auth *coreauth.Auth) string {
@@ -441,11 +444,77 @@ func parseAntigravityModelCapabilityHints(body []byte) (antigravityModelCapabili
 	}, true
 }
 
+func parseAntigravityFetchAvailableModels(body []byte) ([]*ModelInfo, antigravityModelCapabilityHints) {
+	hints := antigravityModelCapabilityHints{WebSearchModelIDs: make(map[string]struct{})}
+	for _, modelID := range ojson.GetBytes(body, "webSearchModelIds").Array() {
+		id := normalizeAntigravityFetchedModelID(modelID.String())
+		if id != "" {
+			hints.WebSearchModelIDs[id] = struct{}{}
+		}
+	}
+
+	modelsResult := ojson.GetBytes(body, "models")
+	if !modelsResult.Exists() || !modelsResult.IsObject() {
+		return nil, hints
+	}
+
+	modelMap := modelsResult.Map()
+	modelIDs := make(map[string]struct{}, len(modelMap))
+	for originalName := range modelMap {
+		if normalized := normalizeAntigravityFetchedModelID(originalName); normalized != "" {
+			modelIDs[normalized] = struct{}{}
+		}
+	}
+	hints.ModelIDs = modelIDs
+
+	now := time.Now().Unix()
+	models := make([]*ModelInfo, 0, len(modelMap))
+	for originalName, modelData := range modelMap {
+		modelID := strings.TrimSpace(originalName)
+		if modelID == "" || shouldSkipAntigravityFetchedModelID(modelID) {
+			continue
+		}
+		displayName := strings.TrimSpace(modelData.Get("displayName").String())
+		if displayName == "" {
+			displayName = modelID
+		}
+		entry := &ModelInfo{
+			ID:          modelID,
+			Object:      "model",
+			Created:     now,
+			OwnedBy:     "antigravity",
+			Type:        "antigravity",
+			DisplayName: displayName,
+			Name:        modelID,
+			Description: displayName,
+		}
+		if maxTok := modelData.Get("maxTokens").Int(); maxTok > 0 {
+			entry.ContextLength = int(maxTok)
+		}
+		if maxOut := modelData.Get("maxOutputTokens").Int(); maxOut > 0 {
+			entry.MaxCompletionTokens = int(maxOut)
+		}
+		if _, ok := hints.WebSearchModelIDs[normalizeAntigravityFetchedModelID(modelID)]; ok {
+			entry.SupportsWebSearch = true
+		}
+		models = append(models, entry)
+	}
+	return models, hints
+}
+
+func shouldSkipAntigravityFetchedModelID(modelID string) bool {
+	switch strings.TrimSpace(modelID) {
+	case "chat_20706", "chat_23310", "tab_flash_lite_preview", "tab_jump_flash_lite_preview", "gemini-2.5-flash-thinking", "gemini-2.5-pro":
+		return true
+	default:
+		return false
+	}
+}
+
 func applyAntigravityFetchedModelCapabilities(models []*ModelInfo, hints antigravityModelCapabilityHints) []*ModelInfo {
 	if len(models) == 0 || len(hints.WebSearchModelIDs) == 0 {
 		return models
 	}
-
 	for _, model := range models {
 		if model == nil {
 			continue
@@ -514,7 +583,22 @@ func (s *Service) antigravityModelsForHintsWithConfig(auth *coreauth.Auth, hints
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
-	models := filterAntigravityModels(registry.GetAntigravityModels(), hints)
+	var models []*ModelInfo
+	switch {
+	case hints.ModelIDs != nil && len(hints.ModelIDs) == 0:
+		// Authoritative empty catalog revokes everything, even a cached live list.
+		models = []*ModelInfo{}
+	case len(hints.ModelIDs) > 0:
+		if live := s.loadLiveModelCache(auth.ID, "antigravity"); len(live) > 0 {
+			// The live upstream catalog is authoritative; the static intersection
+			// would drop models the account can actually use.
+			models = mergeLiveWithStatic(live, registry.GetAntigravityModels(), "antigravity", "antigravity")
+		} else {
+			models = filterAntigravityModels(registry.GetAntigravityModels(), hints)
+		}
+	default:
+		models = filterAntigravityModels(registry.GetAntigravityModels(), hints)
+	}
 	models = applyAntigravityFetchedModelCapabilities(models, hints)
 	excluded := cfg.OAuthExcludedModels[coreauth.OAuthModelAliasChannel(auth.Provider, auth.AuthKind())]
 	if value := strings.TrimSpace(auth.Attributes["excluded_models"]); value != "" {
@@ -737,4 +821,86 @@ func resolveAntigravityUpstreamModelID(modelID string, prefix string, aliasMap m
 		}
 	}
 	return unprefixed
+}
+
+type antigravityLiveModelsResult struct {
+	Models []*ModelInfo
+	Hints  antigravityModelCapabilityHints
+}
+
+// fetchAntigravityLiveModelsForAuth fetches the live list of models available to one
+// Antigravity auth, returning the parsed catalog together with capability hints.
+// Callers are expected to tolerate an error and fall back to cached/static catalogs.
+func (s *Service) fetchAntigravityLiveModelsForAuth(ctx context.Context, auth *coreauth.Auth) (antigravityLiveModelsResult, error) {
+	empty := antigravityLiveModelsResult{}
+	if auth == nil || auth.Metadata == nil {
+		return empty, fmt.Errorf("antigravity auth metadata missing")
+	}
+	accessToken, _ := auth.Metadata["access_token"].(string)
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return empty, fmt.Errorf("antigravity access_token missing")
+	}
+
+	payload := []byte(`{}`)
+	if pid, ok := auth.Metadata["project_id"].(string); ok {
+		pid = strings.TrimSpace(pid)
+		if pid != "" {
+			payload = []byte(fmt.Sprintf(`{"project":%q}`, pid))
+		}
+	}
+
+	client := &http.Client{Timeout: liveModelsFetchTimeout}
+	if transport, _, errProxy := proxyutil.BuildHTTPTransport(s.antigravityModelFetchProxyURL(auth)); errProxy == nil && transport != nil {
+		client.Transport = transport
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var lastErr error
+	for _, baseURL := range antigravityModelBaseURLs(auth) {
+		req, errReq := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+antigravityModelsPath, strings.NewReader(string(payload)))
+		if errReq != nil {
+			lastErr = errReq
+			continue
+		}
+		req.Close = true
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("User-Agent", misc.AntigravityUserAgent())
+
+		resp, errDo := client.Do(req)
+		if errDo != nil {
+			lastErr = errDo
+			continue
+		}
+		body, errRead := io.ReadAll(resp.Body)
+		if errClose := resp.Body.Close(); errClose != nil {
+			log.Debugf("antigravity model fetch: close response body: %v", errClose)
+		}
+		if errRead != nil {
+			lastErr = errRead
+			continue
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			lastErr = fmt.Errorf("fetchAvailableModels HTTP %d", resp.StatusCode)
+			continue
+		}
+
+		models, hints := parseAntigravityFetchAvailableModels(body)
+		if models == nil {
+			// The response is not a well-formed fetchAvailableModels catalog. Empty
+			// model maps are valid and revoke the account catalog; keep this
+			// identical to the probe semantics so both paths agree.
+			lastErr = fmt.Errorf("fetchAvailableModels catalog is not a valid object")
+			continue
+		}
+		return antigravityLiveModelsResult{Models: models, Hints: hints}, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("fetchAvailableModels failed")
+	}
+	return empty, lastErr
 }
