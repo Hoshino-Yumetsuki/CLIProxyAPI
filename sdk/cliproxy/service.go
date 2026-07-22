@@ -113,6 +113,10 @@ type Service struct {
 	homePluginSyncMu    sync.Mutex
 	homePluginSyncKey   string
 	homePluginSyncFetch func(context.Context, sdkpluginstore.PluginSyncRequest) (sdkpluginstore.PluginSyncResponse, error)
+
+	// liveModelCache stores last-success per-auth upstream model lists (mem + disk).
+	liveModelCacheMu sync.RWMutex
+	liveModelCache   map[string]liveModelCacheEntry
 }
 
 const (
@@ -1959,28 +1963,44 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 	switch provider {
 	case constant.Gemini:
 		models = registry.GetGeminiModels()
+		usedConfigModels := false
 		if entry := s.resolveConfigGeminiKey(a); entry != nil {
 			if len(entry.Models) > 0 {
 				models = buildGeminiConfigModels(entry)
+				usedConfigModels = true
 			}
 			if authKind == "apikey" {
 				excluded = entry.ExcludedModels
 			}
+		}
+		if !usedConfigModels {
+			static := models
+			models = s.resolveLiveOrStaticModels(ctx, a, "gemini", static, func(fetchCtx context.Context) ([]*ModelInfo, error) {
+				return s.fetchGeminiLiveModelsForAuth(fetchCtx, a)
+			})
 		}
 		models = applyExcludedModels(models, excluded)
 	case constant.GeminiInteractions:
 		models = registry.GetGeminiModels()
+		usedConfigModels := false
 		if entry := s.resolveConfigInteractionsKey(a); entry != nil {
 			if len(entry.Models) > 0 {
 				models = buildGeminiConfigModels(entry)
+				usedConfigModels = true
 			}
 			if authKind == "apikey" {
 				excluded = entry.ExcludedModels
 			}
 		}
+		if !usedConfigModels {
+			static := models
+			models = s.resolveLiveOrStaticModels(ctx, a, "gemini", static, func(fetchCtx context.Context) ([]*ModelInfo, error) {
+				return s.fetchGeminiLiveModelsForAuth(fetchCtx, a)
+			})
+		}
 		models = applyExcludedModels(models, excluded)
 	case "vertex":
-		// Vertex AI Gemini supports the same model identifiers as Gemini.
+		// Vertex has no simple list API in v1; keep static/config catalog.
 		models = registry.GetGeminiVertexModels()
 		if entry := s.resolveConfigVertexCompatKey(a); entry != nil {
 			if len(entry.Models) > 0 {
@@ -1992,21 +2012,39 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 		}
 		models = applyExcludedModels(models, excluded)
 	case "aistudio":
+		// AI Studio models are not listed via a simple upstream HTTP API from this process.
 		models = registry.GetAIStudioModels()
 		models = applyExcludedModels(models, excluded)
 	case "antigravity":
-		models = registry.GetAntigravityModels()
-		models = applyAntigravityFetchedModelCapabilities(models, s.fetchAntigravityModelCapabilityHintsForAuth(ctx, a))
+		static := registry.GetAntigravityModels()
+		var liveHints antigravityModelCapabilityHints
+		models = s.resolveLiveOrStaticModels(ctx, a, "antigravity", static, func(fetchCtx context.Context) ([]*ModelInfo, error) {
+			result, err := s.fetchAntigravityLiveModelsForAuth(fetchCtx, a)
+			if err != nil {
+				return nil, err
+			}
+			liveHints = result.Hints
+			return result.Models, nil
+		})
+		models = applyAntigravityFetchedModelCapabilities(models, liveHints)
 		models = applyExcludedModels(models, excluded)
 	case "claude":
 		models = registry.GetClaudeModels()
+		usedConfigModels := false
 		if entry := s.resolveConfigClaudeKey(a); entry != nil {
 			if len(entry.Models) > 0 {
 				models = buildClaudeConfigModels(entry)
+				usedConfigModels = true
 			}
 			if authKind == "apikey" {
 				excluded = entry.ExcludedModels
 			}
+		}
+		if !usedConfigModels {
+			static := models
+			models = s.resolveLiveOrStaticModels(ctx, a, "claude", static, func(fetchCtx context.Context) ([]*ModelInfo, error) {
+				return s.fetchClaudeLiveModelsForAuth(fetchCtx, a)
+			})
 		}
 		models = applyExcludedModels(models, excluded)
 	case "codex":
@@ -2026,27 +2064,48 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 		default:
 			models = registry.GetCodexProModels()
 		}
+		usedConfigModels := false
 		if entry := s.resolveConfigCodexKey(a); entry != nil {
 			if len(entry.Models) > 0 {
 				models = buildCodexConfigModels(entry)
+				usedConfigModels = true
 			}
 			if authKind == "apikey" {
 				excluded = entry.ExcludedModels
 			}
 		}
+		if !usedConfigModels {
+			static := models
+			models = s.resolveLiveOrStaticModels(ctx, a, "codex", static, func(fetchCtx context.Context) ([]*ModelInfo, error) {
+				return s.fetchCodexLiveModelsForAuth(fetchCtx, a)
+			})
+			models = registry.WithCodexBuiltins(models)
+		}
 		models = applyExcludedModels(models, excluded)
 	case "kimi":
-		models = registry.GetKimiModels()
+		static := registry.GetKimiModels()
+		models = s.resolveLiveOrStaticModels(ctx, a, "kimi", static, func(fetchCtx context.Context) ([]*ModelInfo, error) {
+			return s.fetchKimiLiveModelsForAuth(fetchCtx, a)
+		})
 		models = applyExcludedModels(models, excluded)
 	case "xai":
 		models = registry.GetXAIModels()
+		usedConfigModels := false
 		if entry := s.resolveConfigXAIKey(a); entry != nil {
 			if len(entry.Models) > 0 {
 				models = buildXAIConfigModels(entry)
+				usedConfigModels = true
 			}
 			if authKind == "apikey" {
 				excluded = entry.ExcludedModels
 			}
+		}
+		if !usedConfigModels {
+			static := models
+			models = s.resolveLiveOrStaticModels(ctx, a, "xai", static, func(fetchCtx context.Context) ([]*ModelInfo, error) {
+				return s.fetchXAILiveModelsForAuth(fetchCtx, a)
+			})
+			models = registry.WithXAIBuiltins(models)
 		}
 		models = applyExcludedModels(models, excluded)
 	default:

@@ -298,19 +298,26 @@ func TestRegisterModelsForAuth_AntigravityFetchesWebSearchCapability(t *testing.
 	if staticWebSearchModel == nil {
 		t.Fatal("expected static gemini-3.1-flash-lite definition")
 	}
-	if webSearchModel.ContextLength != staticWebSearchModel.ContextLength || webSearchModel.MaxCompletionTokens != staticWebSearchModel.MaxCompletionTokens {
-		t.Fatalf("static token limits should be preserved, got=%#v static=%#v", webSearchModel, staticWebSearchModel)
+	// Live maxTokens/maxOutputTokens overlay static limits when present.
+	if webSearchModel.ContextLength != 1 || webSearchModel.MaxCompletionTokens != 2 {
+		t.Fatalf("live token limits should overlay static, got context=%d max=%d", webSearchModel.ContextLength, webSearchModel.MaxCompletionTokens)
 	}
-	if agentModel == nil {
-		t.Fatal("expected gemini-3-flash-agent to be registered")
+	if webSearchModel.Thinking == nil {
+		t.Fatal("static thinking metadata should be preserved on live/static overlap")
 	}
-	if agentModel.SupportsWebSearch {
-		t.Fatal("gemini-3-flash-agent should not support web search")
+	if agentModel != nil {
+		t.Fatal("static-only gemini-3-flash-agent must not remain when live list succeeds")
 	}
-	if staticOnlyModel == nil {
-		t.Fatal("expected static-only Antigravity model to remain registered")
+	if staticOnlyModel != nil {
+		t.Fatal("static-only Antigravity model must not remain when live list succeeds")
 	}
-	if fetchedOnlyModel != nil {
-		t.Fatalf("fetched-only model should not be registered: %#v", fetchedOnlyModel)
+	if fetchedOnlyModel == nil {
+		t.Fatal("expected fetched-only model to be registered from live list")
+	}
+	if !fetchedOnlyModel.SupportsWebSearch {
+		t.Fatal("expected fetched-only model to support web search")
+	}
+	if !fetchedOnlyModel.UserDefined {
+		t.Fatal("live-only model should be UserDefined")
 	}
 }
