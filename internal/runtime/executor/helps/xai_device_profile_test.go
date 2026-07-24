@@ -1,6 +1,7 @@
 package helps
 
 import (
+	"fmt"
 	"testing"
 
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -26,8 +27,9 @@ func TestResolveXAIDeviceProfileIsolatesAccounts(t *testing.T) {
 	if a.ClientVersion != defaultXAIClientVersion {
 		t.Fatalf("ClientVersion = %q, want %q", a.ClientVersion, defaultXAIClientVersion)
 	}
-	if a.UserAgent() != "xai-grok-workspace/"+defaultXAIClientVersion {
-		t.Fatalf("UserAgent = %q", a.UserAgent())
+	wantUA := fmt.Sprintf("%s/%s (%s; %s)", defaultXAIClientIdentifier, defaultXAIClientVersion, a.OS, a.Arch)
+	if a.UserAgent() != wantUA {
+		t.Fatalf("UserAgent = %q, want %q", a.UserAgent(), wantUA)
 	}
 }
 
@@ -91,10 +93,54 @@ func TestResolveXAIDeviceProfilePrefersCredentialJSON(t *testing.T) {
 		},
 	}
 	profile := ResolveXAIDeviceProfile(auth)
-	if profile.AgentID != "agent-from-file" || profile.ClientVersion != "9.9.9" {
-		t.Fatalf("did not prefer credential profile: %+v", profile)
+	if profile.AgentID != "agent-from-file" || profile.SessionID != "session-from-file" {
+		t.Fatalf("did not prefer credential agent/session: %+v", profile)
 	}
-	if profile.UserAgent() != "xai-grok-workspace/9.9.9" {
-		t.Fatalf("UserAgent = %q", profile.UserAgent())
+	if profile.ClientVersion != defaultXAIClientVersion {
+		t.Fatalf("ClientVersion = %q, want lockstep %q", profile.ClientVersion, defaultXAIClientVersion)
+	}
+	if profile.ClientIdentifier != "custom-id" {
+		t.Fatalf("ClientIdentifier = %q, want custom-id", profile.ClientIdentifier)
+	}
+	wantUA := fmt.Sprintf("custom-id/%s (linux; x86_64)", defaultXAIClientVersion)
+	if profile.UserAgent() != wantUA {
+		t.Fatalf("UserAgent = %q, want %q", profile.UserAgent(), wantUA)
+	}
+}
+
+func TestEnsureXAIDeviceProfileRewritesLegacyIdentity(t *testing.T) {
+	auth := &cliproxyauth.Auth{
+		ID: "legacy-auth",
+		Metadata: map[string]any{
+			XAIDeviceProfileMetadataKey: map[string]any{
+				"client_version":    "0.2.101",
+				"client_identifier": legacyXAIClientIdentifier,
+				"client_mode":       "headless",
+				"agent_id":          "agent-keep",
+				"session_id":        "session-keep",
+				"os":                "macos",
+				"arch":              "aarch64",
+			},
+		},
+	}
+	profile, changed := EnsureXAIDeviceProfileInAuth(auth)
+	if !changed {
+		t.Fatal("expected rewrite of legacy client identity")
+	}
+	if profile.ClientVersion != defaultXAIClientVersion {
+		t.Fatalf("ClientVersion = %q, want %q", profile.ClientVersion, defaultXAIClientVersion)
+	}
+	if profile.ClientIdentifier != defaultXAIClientIdentifier {
+		t.Fatalf("ClientIdentifier = %q, want %q", profile.ClientIdentifier, defaultXAIClientIdentifier)
+	}
+	if profile.AgentID != "agent-keep" || profile.SessionID != "session-keep" {
+		t.Fatalf("agent/session rewritten: %+v", profile)
+	}
+	again, changed2 := EnsureXAIDeviceProfileInAuth(auth)
+	if changed2 {
+		t.Fatal("expected stable after rewrite")
+	}
+	if again.ClientIdentifier != defaultXAIClientIdentifier {
+		t.Fatalf("ClientIdentifier = %q after second ensure", again.ClientIdentifier)
 	}
 }

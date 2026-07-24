@@ -132,6 +132,7 @@ func (a *XAIAuth) RequestDeviceCode(ctx context.Context, deviceAuthorizationEndp
 	form := url.Values{
 		"client_id": {ClientID},
 		"scope":     {Scope},
+		"referrer":  {DeviceReferrer},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, deviceAuthorizationEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -139,6 +140,9 @@ func (a *XAIAuth) RequestDeviceCode(ctx context.Context, deviceAuthorizationEndp
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	// Match xai-org/grok-build device-code funnel metrics headers.
+	req.Header.Set("x-grok-client-version", ClientVersion)
+	req.Header.Set("x-grok-client-surface", DeviceClientSurface)
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -267,6 +271,8 @@ func (a *XAIAuth) exchangeDeviceCode(ctx context.Context, tokenEndpoint, deviceC
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("x-grok-client-version", ClientVersion)
+	req.Header.Set("x-grok-client-surface", DeviceClientSurface)
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {

@@ -11,12 +11,14 @@ import (
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 )
 
-// Keep in sync with xai-org/grok-build xai-grok-version package when practical.
+// Keep in sync with xai-org/grok-build (xai-grok-version + grok-shell identity).
 const (
-	defaultXAIClientVersion    = "0.2.101"
-	defaultXAIClientIdentifier = "xai-grok-workspace"
+	defaultXAIClientVersion    = "0.2.111"
+	defaultXAIClientIdentifier = "grok-shell"
 	defaultXAIClientMode       = "headless"
 	defaultXAITokenAuthValue   = "xai-grok-cli"
+	// legacyXAIClientIdentifier is the pre-0.2.110 product id; rewrite on load.
+	legacyXAIClientIdentifier = "xai-grok-workspace"
 	// XAIDeviceProfileMetadataKey is stored in auth credential JSON under metadata.
 	XAIDeviceProfileMetadataKey = "device_profile"
 )
@@ -36,11 +38,24 @@ type XAIDeviceProfile struct {
 }
 
 func (p XAIDeviceProfile) UserAgent() string {
+	product := strings.TrimSpace(p.ClientIdentifier)
+	if product == "" || product == legacyXAIClientIdentifier {
+		product = defaultXAIClientIdentifier
+	}
 	version := strings.TrimSpace(p.ClientVersion)
 	if version == "" {
 		version = defaultXAIClientVersion
 	}
-	return "xai-grok-workspace/" + version
+	osName := strings.TrimSpace(p.OS)
+	if osName == "" {
+		osName = mapXAIOS()
+	}
+	arch := strings.TrimSpace(p.Arch)
+	if arch == "" {
+		arch = mapXAIArch()
+	}
+	// Match xai-org/grok-build: "grok-shell/<ver> (os; arch)"
+	return fmt.Sprintf("%s/%s (%s; %s)", product, version, osName, arch)
 }
 
 func (p XAIDeviceProfile) complete() bool {
@@ -86,14 +101,18 @@ func EnsureXAIDeviceProfileInAuth(auth *cliproxyauth.Auth) (XAIDeviceProfile, bo
 		return synthesizeXAIDeviceProfile("global"), false
 	}
 	scope := xaiDeviceProfileScopeKey(auth)
-	if existing, ok := XAIDeviceProfileFromAuth(auth); ok {
-		// Refresh empty optional fields without rewriting agent/session ids.
-		normalized := normalizeXAIDeviceProfile(existing, scope)
-		if deviceProfileEqual(existing, normalized) {
-			return existing, false
+	if auth.Metadata != nil {
+		if raw, ok := auth.Metadata[XAIDeviceProfileMetadataKey]; ok && raw != nil {
+			if decoded, okDecode := decodeXAIDeviceProfile(raw); okDecode && decoded.complete() {
+				// Compare pre-normalize so lockstep version / legacy id rewrites persist.
+				normalized := normalizeXAIDeviceProfile(decoded, scope)
+				if deviceProfileEqual(decoded, normalized) {
+					return normalized, false
+				}
+				writeXAIDeviceProfileMetadata(auth, normalized)
+				return normalized, true
+			}
 		}
-		writeXAIDeviceProfileMetadata(auth, normalized)
-		return normalized, true
 	}
 	profile := synthesizeXAIDeviceProfile(scope)
 	writeXAIDeviceProfileMetadata(auth, profile)
@@ -179,11 +198,13 @@ func synthesizeXAIDeviceProfile(scope string) XAIDeviceProfile {
 }
 
 func normalizeXAIDeviceProfile(profile XAIDeviceProfile, scope string) XAIDeviceProfile {
-	if strings.TrimSpace(profile.ClientVersion) == "" {
-		profile.ClientVersion = defaultXAIClientVersion
-	}
-	if strings.TrimSpace(profile.ClientIdentifier) == "" {
+	// Always pin lockstep client version (upstream sends live xai-grok-version).
+	profile.ClientVersion = defaultXAIClientVersion
+	id := strings.TrimSpace(profile.ClientIdentifier)
+	if id == "" || id == legacyXAIClientIdentifier {
 		profile.ClientIdentifier = defaultXAIClientIdentifier
+	} else {
+		profile.ClientIdentifier = id
 	}
 	if strings.TrimSpace(profile.ClientMode) == "" {
 		profile.ClientMode = defaultXAIClientMode

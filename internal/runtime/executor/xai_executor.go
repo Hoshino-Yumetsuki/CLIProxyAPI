@@ -67,7 +67,7 @@ const (
 	xaiClientVersionHeader      = "x-grok-client-version"
 	// Fallback only; live chat-proxy identity uses helps.ResolveXAIDeviceProfile.
 	// Keep in sync with xai-org/grok-build xai-grok-version when practical.
-	xaiClientVersionValue = "0.2.101"
+	xaiClientVersionValue = "0.2.111"
 	// xaiUsingAPIAttr enables the official API path for non-media HTTP chat.
 	xaiUsingAPIAttr = "using_api"
 )
