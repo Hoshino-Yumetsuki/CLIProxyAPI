@@ -2,12 +2,8 @@ package cliproxy
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
-	"unicode"
 
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
@@ -15,18 +11,20 @@ import (
 
 const (
 	liveModelsFetchTimeout = 30 * time.Second
-	liveModelCacheVersion  = 1
-	liveModelCacheDirName  = ".model-cache"
+	// liveModelCacheTTL is how long a successful per-provider list is reused
+	// without re-fetching. Shared across all credentials of that provider.
+	liveModelCacheTTL = 3 * time.Hour
 )
 
 type liveModelCacheEntry struct {
-	Provider  string       `json:"provider"`
-	FetchedAt time.Time    `json:"fetched_at"`
-	Models    []*ModelInfo `json:"models"`
+	Provider  string
+	FetchedAt time.Time
+	Models    []*ModelInfo
 }
 
 // resolveLiveOrStaticModels prefers a live upstream model list for auth registration.
-// Fallback chain: live success → mem/disk last-success → static catalog.
+// Fallback chain: fresh in-memory provider cache → live fetch → stale cache → static.
+// Same provider shares one successful result; re-fetch at most every liveModelCacheTTL.
 // Empty live results are treated as failures so a previous success is preserved.
 func (s *Service) resolveLiveOrStaticModels(
 	ctx context.Context,
@@ -38,6 +36,14 @@ func (s *Service) resolveLiveOrStaticModels(
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if auth == nil || strings.TrimSpace(auth.ID) == "" || fetch == nil {
 		return static
+	}
+	if provider == "" {
+		return static
+	}
+
+	if cached, fresh := s.loadLiveModelCache(provider); len(cached) > 0 && fresh {
+		log.Debugf("live models: using fresh cache for provider %s (%d models)", provider, len(cached))
+		return mergeLiveWithStatic(cached, static, provider, provider)
 	}
 
 	fetchCtx := ctx
@@ -52,12 +58,12 @@ func (s *Service) resolveLiveOrStaticModels(
 		log.Debugf("live models: fetch failed for auth %s provider %s: %v", auth.ID, provider, err)
 	}
 	if len(live) > 0 {
-		s.storeLiveModelCache(auth.ID, provider, live)
+		s.storeLiveModelCache(provider, live)
 		return mergeLiveWithStatic(live, static, provider, provider)
 	}
 
-	if cached := s.loadLiveModelCache(auth.ID, provider); len(cached) > 0 {
-		log.Debugf("live models: using cached list for auth %s provider %s (%d models)", auth.ID, provider, len(cached))
+	if cached, _ := s.loadLiveModelCache(provider); len(cached) > 0 {
+		log.Debugf("live models: using stale cache for provider %s (%d models)", provider, len(cached))
 		return mergeLiveWithStatic(cached, static, provider, provider)
 	}
 	return static
@@ -202,10 +208,10 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (s *Service) storeLiveModelCache(authID, provider string, models []*ModelInfo) {
-	authID = strings.TrimSpace(authID)
+// storeLiveModelCache keeps one successful list per provider (shared by all auths of that type).
+func (s *Service) storeLiveModelCache(provider string, models []*ModelInfo) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	if s == nil || authID == "" || provider == "" || len(models) == 0 {
+	if s == nil || provider == "" || len(models) == 0 {
 		return
 	}
 	entry := liveModelCacheEntry{
@@ -218,135 +224,25 @@ func (s *Service) storeLiveModelCache(authID, provider string, models []*ModelIn
 	if s.liveModelCache == nil {
 		s.liveModelCache = make(map[string]liveModelCacheEntry)
 	}
-	s.liveModelCache[authID] = entry
+	s.liveModelCache[provider] = entry
 	s.liveModelCacheMu.Unlock()
-
-	if path := s.liveModelCacheFilePath(authID); path != "" {
-		if err := saveLiveModelCacheFile(path, entry); err != nil {
-			log.Debugf("live models: disk cache write failed for %s: %v", authID, err)
-		}
-	}
 }
 
-func (s *Service) loadLiveModelCache(authID, provider string) []*ModelInfo {
-	authID = strings.TrimSpace(authID)
+// loadLiveModelCache returns models for provider and whether the entry is still within TTL.
+func (s *Service) loadLiveModelCache(provider string) ([]*ModelInfo, bool) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	if s == nil || authID == "" || provider == "" {
-		return nil
+	if s == nil || provider == "" {
+		return nil, false
 	}
 
 	s.liveModelCacheMu.RLock()
-	if entry, ok := s.liveModelCache[authID]; ok && strings.EqualFold(entry.Provider, provider) && len(entry.Models) > 0 {
-		models := cloneModelInfoSlice(entry.Models)
-		s.liveModelCacheMu.RUnlock()
-		return models
+	defer s.liveModelCacheMu.RUnlock()
+	entry, ok := s.liveModelCache[provider]
+	if !ok || !strings.EqualFold(entry.Provider, provider) || len(entry.Models) == 0 {
+		return nil, false
 	}
-	s.liveModelCacheMu.RUnlock()
-
-	path := s.liveModelCacheFilePath(authID)
-	if path == "" {
-		return nil
-	}
-	entry, err := loadLiveModelCacheFile(path)
-	if err != nil || !strings.EqualFold(entry.Provider, provider) || len(entry.Models) == 0 {
-		return nil
-	}
-
-	s.liveModelCacheMu.Lock()
-	if s.liveModelCache == nil {
-		s.liveModelCache = make(map[string]liveModelCacheEntry)
-	}
-	s.liveModelCache[authID] = entry
-	s.liveModelCacheMu.Unlock()
-	return cloneModelInfoSlice(entry.Models)
-}
-
-func (s *Service) liveModelCacheFilePath(authID string) string {
-	authID = strings.TrimSpace(authID)
-	if s == nil || authID == "" || s.cfg == nil {
-		return ""
-	}
-	authDir, err := resolveCooldownStateAuthDir(s.cfg)
-	if err != nil || strings.TrimSpace(authDir) == "" {
-		return ""
-	}
-	return filepath.Join(authDir, liveModelCacheDirName, sanitizeLiveModelCacheFileName(authID)+".json")
-}
-
-func sanitizeLiveModelCacheFileName(authID string) string {
-	authID = strings.TrimSpace(authID)
-	if authID == "" {
-		return "unknown"
-	}
-	var b strings.Builder
-	b.Grow(len(authID))
-	for _, r := range authID {
-		switch {
-		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_', r == '.':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	out := b.String()
-	if out == "" || out == "." || out == ".." {
-		return "unknown"
-	}
-	return out
-}
-
-type liveModelCacheFile struct {
-	Version   int          `json:"version"`
-	Provider  string       `json:"provider"`
-	FetchedAt time.Time    `json:"fetched_at"`
-	Models    []*ModelInfo `json:"models"`
-}
-
-func saveLiveModelCacheFile(path string, entry liveModelCacheEntry) error {
-	if strings.TrimSpace(path) == "" || len(entry.Models) == 0 {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	payload := liveModelCacheFile{
-		Version:   liveModelCacheVersion,
-		Provider:  entry.Provider,
-		FetchedAt: entry.FetchedAt,
-		Models:    entry.Models,
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-func loadLiveModelCacheFile(path string) (liveModelCacheEntry, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return liveModelCacheEntry{}, err
-	}
-	var payload liveModelCacheFile
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return liveModelCacheEntry{}, err
-	}
-	if payload.Version != 0 && payload.Version != liveModelCacheVersion {
-		return liveModelCacheEntry{}, os.ErrInvalid
-	}
-	return liveModelCacheEntry{
-		Provider:  strings.ToLower(strings.TrimSpace(payload.Provider)),
-		FetchedAt: payload.FetchedAt,
-		Models:    payload.Models,
-	}, nil
+	fresh := !entry.FetchedAt.IsZero() && time.Since(entry.FetchedAt) < liveModelCacheTTL
+	return cloneModelInfoSlice(entry.Models), fresh
 }
 
 func cloneModelInfoSlice(models []*ModelInfo) []*ModelInfo {

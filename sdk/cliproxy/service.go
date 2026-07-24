@@ -139,7 +139,8 @@ type Service struct {
 	homePluginSyncFetch          func(context.Context, sdkpluginstore.PluginSyncRequest) (sdkpluginstore.PluginSyncResponse, error)
 	homePluginDeleteTask         func(context.Context, *config.Config, home.PluginTask) homeplugins.SyncReport
 
-	// liveModelCache stores last-success per-auth upstream model lists (mem + disk).
+	// liveModelCache stores last-success per-provider upstream model lists in memory only.
+	// Keyed by provider so credentials of the same type share one successful fetch (TTL 3h).
 	liveModelCacheMu sync.RWMutex
 	liveModelCache   map[string]liveModelCacheEntry
 }
