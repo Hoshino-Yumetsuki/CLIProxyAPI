@@ -2867,8 +2867,8 @@ func TestXAIExecutorCompactOAuthUsesOfficialAPIHeadersNotCLIProxy(t *testing.T) 
 	if gotClientVersion != "" {
 		t.Fatalf("%s = %q, want empty on compact", xaiClientVersionHeader, gotClientVersion)
 	}
-	if got, want := gotUserAgent, "xai-grok-workspace/"+xaiClientVersion(); got != want {
-		t.Fatalf("User-Agent = %q, want default %q on compact when downstream UA is absent", got, want)
+	if strings.Contains(gotUserAgent, "grok-shell/") || strings.Contains(gotUserAgent, "xai-grok-workspace/") {
+		t.Fatalf("User-Agent = %q, want no CLI shell UA on compact", gotUserAgent)
 	}
 
 	_, err = exec.Execute(context.Background(), auth, cliproxyexecutor.Request{
@@ -6800,20 +6800,14 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		if got := req.Header.Get(xaiClientVersionHeader); got != xaiClientVersionValue {
 			t.Fatalf("%s = %q, want %q", xaiClientVersionHeader, got, xaiClientVersionValue)
 		}
-		if got := req.Header.Get("x-grok-client-identifier"); got != "xai-grok-workspace" {
-			t.Fatalf("x-grok-client-identifier = %q, want xai-grok-workspace", got)
+		if got := req.Header.Get("User-Agent"); !strings.HasPrefix(got, "grok-shell/"+xaiClientVersionValue+" (") {
+			t.Fatalf("User-Agent = %q, want prefix grok-shell/%s (", got, xaiClientVersionValue)
 		}
 		if got := req.Header.Get("x-authenticateresponse"); got != "authenticate-response" {
 			t.Fatalf("x-authenticateresponse = %q, want authenticate-response", got)
 		}
-		if got := req.Header.Get("User-Agent"); got != "xai-grok-workspace/"+xaiClientVersionValue {
-			t.Fatalf("User-Agent = %q, want xai-grok-workspace/%s", got, xaiClientVersionValue)
-		}
-		if got := req.Header.Get("x-authenticateresponse"); got != "authenticate-response" {
-			t.Fatalf("x-authenticateresponse = %q, want authenticate-response", got)
-		}
-		if got := req.Header.Get("x-grok-client-identifier"); got == "" {
-			t.Fatal("x-grok-client-identifier is empty")
+		if got := req.Header.Get("x-grok-client-identifier"); got != "grok-shell" {
+			t.Fatalf("x-grok-client-identifier = %q, want grok-shell", got)
 		}
 		if got := req.Header.Get("x-grok-agent-id"); got == "" {
 			t.Fatal("x-grok-agent-id is empty")

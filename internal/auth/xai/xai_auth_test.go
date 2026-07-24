@@ -34,6 +34,7 @@ func TestValidateOAuthEndpointRejectsNonXAIOrigin(t *testing.T) {
 
 func TestRequestDeviceCodePostsClientIDAndScope(t *testing.T) {
 	var gotForm url.Values
+	var gotHeaders http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %s, want POST", r.Method)
@@ -45,6 +46,7 @@ func TestRequestDeviceCodePostsClientIDAndScope(t *testing.T) {
 			t.Fatalf("ParseForm() error = %v", err)
 		}
 		gotForm = r.PostForm
+		gotHeaders = r.Header.Clone()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"device_code":               "device-abc",
@@ -76,6 +78,15 @@ func TestRequestDeviceCodePostsClientIDAndScope(t *testing.T) {
 	}
 	if gotForm.Get("scope") != Scope {
 		t.Fatalf("scope = %q, want %q", gotForm.Get("scope"), Scope)
+	}
+	if gotForm.Get("referrer") != DeviceReferrer {
+		t.Fatalf("referrer = %q, want %q", gotForm.Get("referrer"), DeviceReferrer)
+	}
+	if got := gotHeaders.Get("x-grok-client-version"); got != ClientVersion {
+		t.Fatalf("x-grok-client-version = %q, want %q", got, ClientVersion)
+	}
+	if got := gotHeaders.Get("x-grok-client-surface"); got != DeviceClientSurface {
+		t.Fatalf("x-grok-client-surface = %q, want %q", got, DeviceClientSurface)
 	}
 }
 
