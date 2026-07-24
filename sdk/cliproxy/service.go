@@ -157,7 +157,8 @@ type Service struct {
 	antigravityPersistPending map[string]*antigravityHintPersistRequest
 	antigravityPersistActive  map[string]*antigravityHintPersistRequest
 
-	// liveModelCache stores last-success per-auth upstream model lists (mem + disk).
+	// liveModelCache stores last-success per-provider upstream model lists in memory only.
+	// Keyed by provider so credentials of the same type share one successful fetch (TTL 3h).
 	liveModelCacheMu sync.RWMutex
 	liveModelCache   map[string]liveModelCacheEntry
 }

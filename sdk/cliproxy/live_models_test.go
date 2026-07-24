@@ -3,8 +3,6 @@ package cliproxy
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -76,8 +74,7 @@ func TestMergeLiveWithStatic_OverlaysAndDropsStaticOnly(t *testing.T) {
 }
 
 func TestResolveLiveOrStaticModels_FallbackChain(t *testing.T) {
-	authDir := t.TempDir()
-	service := &Service{cfg: &config.Config{AuthDir: authDir}}
+	service := &Service{cfg: &config.Config{AuthDir: t.TempDir()}}
 	auth := &coreauth.Auth{ID: "auth-1", Provider: "claude"}
 	static := []*ModelInfo{{ID: "static-model", DisplayName: "Static"}}
 
@@ -89,52 +86,50 @@ func TestResolveLiveOrStaticModels_FallbackChain(t *testing.T) {
 		t.Fatalf("live success got %#v", models)
 	}
 
-	// 2) live fail uses cache
+	// 2) same provider + different auth reuses shared cache (no second fetch)
+	auth2 := &coreauth.Auth{ID: "auth-2", Provider: "claude"}
+	fetchCalls := 0
+	models = service.resolveLiveOrStaticModels(context.Background(), auth2, "claude", static, func(context.Context) ([]*ModelInfo, error) {
+		fetchCalls++
+		return nil, errors.New("should not fetch while fresh")
+	})
+	if fetchCalls != 0 {
+		t.Fatalf("expected shared provider cache to skip fetch, calls=%d", fetchCalls)
+	}
+	if len(models) != 1 || models[0].ID != "live-model" {
+		t.Fatalf("shared provider cache got %#v", models)
+	}
+
+	// 3) live fail after expiry uses stale cache, then no-cache -> static on other provider
+	service.liveModelCacheMu.Lock()
+	entry := service.liveModelCache["claude"]
+	entry.FetchedAt = time.Now().UTC().Add(-liveModelCacheTTL - time.Minute)
+	service.liveModelCache["claude"] = entry
+	service.liveModelCacheMu.Unlock()
+
 	models = service.resolveLiveOrStaticModels(context.Background(), auth, "claude", static, func(context.Context) ([]*ModelInfo, error) {
 		return nil, errors.New("upstream down")
 	})
 	if len(models) != 1 || models[0].ID != "live-model" {
-		t.Fatalf("cache fallback got %#v", models)
+		t.Fatalf("stale cache fallback got %#v", models)
 	}
 
-	// disk cache should also work for a fresh service
-	service2 := &Service{cfg: &config.Config{AuthDir: authDir}}
+	// fresh service has no shared memory cache
+	service2 := &Service{cfg: &config.Config{AuthDir: t.TempDir()}}
 	models = service2.resolveLiveOrStaticModels(context.Background(), auth, "claude", static, func(context.Context) ([]*ModelInfo, error) {
 		return nil, errors.New("upstream down")
 	})
-	if len(models) != 1 || models[0].ID != "live-model" {
-		t.Fatalf("disk cache fallback got %#v", models)
-	}
-
-	// 3) no cache -> static
-	auth2 := &coreauth.Auth{ID: "auth-2", Provider: "claude"}
-	models = service.resolveLiveOrStaticModels(context.Background(), auth2, "claude", static, func(context.Context) ([]*ModelInfo, error) {
-		return nil, errors.New("upstream down")
-	})
 	if len(models) != 1 || models[0].ID != "static-model" {
-		t.Fatalf("static fallback got %#v", models)
+		t.Fatalf("fresh service should fall back to static, got %#v", models)
 	}
 
-	// empty live should not wipe cache
+	// empty live should not wipe cache (still has stale entry from above)
 	models = service.resolveLiveOrStaticModels(context.Background(), auth, "claude", static, func(context.Context) ([]*ModelInfo, error) {
 		return nil, nil
 	})
 	if len(models) != 1 || models[0].ID != "live-model" {
 		t.Fatalf("empty live must preserve cache, got %#v", models)
 	}
-
-	cachePath := service.liveModelCacheFilePath(auth.ID)
-	if cachePath == "" {
-		t.Fatal("expected cache path")
-	}
-	if _, err := os.Stat(cachePath); err != nil {
-		t.Fatalf("cache file missing: %v", err)
-	}
-	// ensure under .model-cache
-	if filepath.Base(filepath.Dir(cachePath)) != liveModelCacheDirName {
-		t.Fatalf("cache dir = %s", filepath.Dir(cachePath))
-	}
-	_ = time.Now()
 }
 
 func TestParseAntigravityFetchAvailableModels(t *testing.T) {
