@@ -21,6 +21,12 @@ const (
 	Scope = "openid profile email offline_access grok-cli:access api:access"
 	// DeviceCodeGrantType is the OAuth2 device authorization grant type (RFC 8628).
 	DeviceCodeGrantType = "urn:ietf:params:oauth:grant-type:device_code"
+	// ClientVersion is lockstepped with xai-org/grok-build xai-grok-version.
+	ClientVersion = "0.2.111"
+	// DeviceReferrer is the OAuth device-code / authorize referrer used by grok-build.
+	DeviceReferrer = "grok-build"
+	// DeviceClientSurface is the x-grok-client-surface value for interactive CLI login.
+	DeviceClientSurface = "cli"
 	// defaultPollInterval is used when the device endpoint omits interval.
 	defaultPollInterval = 5 * time.Second
 	// httpClientTimeout bounds credential-acquisition HTTP calls (device/token/refresh).
