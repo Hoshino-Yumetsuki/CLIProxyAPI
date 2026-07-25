@@ -159,8 +159,9 @@ type Service struct {
 
 	// liveModelCache stores last-success per-provider upstream model lists in memory only.
 	// Keyed by provider so credentials of the same type share one successful fetch (TTL 3h).
-	liveModelCacheMu sync.RWMutex
-	liveModelCache   map[string]liveModelCacheEntry
+	liveModelCacheMu    sync.RWMutex
+	liveModelCache      map[string]liveModelCacheEntry
+	liveModelFetchGroup singleflight.Group
 }
 
 // SetResultPolicy sets an execution result policy on the underlying core auth manager.

@@ -41,25 +41,54 @@ func (s *Service) resolveLiveOrStaticModels(
 		return static
 	}
 
-	if cached, fresh := s.loadLiveModelCache(provider); len(cached) > 0 && fresh {
-		log.Debugf("live models: using fresh cache for provider %s (%d models)", provider, len(cached))
-		return mergeLiveWithStatic(cached, static, provider, provider)
+	type fetchResult struct {
+		models []*ModelInfo
+		owner  *byte
 	}
+	callerCtx := ctx
+	if callerCtx == nil {
+		callerCtx = context.Background()
+	}
+	owner := new(byte)
+	for {
+		if cached, fresh := s.loadLiveModelCache(provider); len(cached) > 0 && fresh {
+			log.Debugf("live models: using fresh cache for provider %s (%d models)", provider, len(cached))
+			return mergeLiveWithStatic(cached, static, provider, provider)
+		}
 
-	fetchCtx := ctx
-	if fetchCtx == nil {
-		fetchCtx = context.Background()
-	}
-	fetchCtx, cancel := context.WithTimeout(fetchCtx, liveModelsFetchTimeout)
-	defer cancel()
+		resultCh := s.liveModelFetchGroup.DoChan(provider, func() (any, error) {
+			if cached, fresh := s.loadLiveModelCache(provider); len(cached) > 0 && fresh {
+				return fetchResult{models: cached}, nil
+			}
 
-	live, err := fetch(fetchCtx)
-	if err != nil {
-		log.Debugf("live models: fetch failed for auth %s provider %s: %v", auth.ID, provider, err)
-	}
-	if len(live) > 0 {
-		s.storeLiveModelCache(provider, live)
-		return mergeLiveWithStatic(live, static, provider, provider)
+			fetchCtx, cancel := context.WithTimeout(callerCtx, liveModelsFetchTimeout)
+			defer cancel()
+
+			live, err := fetch(fetchCtx)
+			if err != nil {
+				log.Debugf("live models: fetch failed for auth %s provider %s: %v", auth.ID, provider, err)
+			}
+			if len(live) > 0 {
+				s.storeLiveModelCache(provider, live)
+			}
+			return fetchResult{models: live, owner: owner}, nil
+		})
+		var result fetchResult
+		select {
+		case call := <-resultCh:
+			result = call.Val.(fetchResult)
+		case <-callerCtx.Done():
+			if cached, _ := s.loadLiveModelCache(provider); len(cached) > 0 {
+				return mergeLiveWithStatic(cached, static, provider, provider)
+			}
+			return static
+		}
+		if len(result.models) > 0 {
+			return mergeLiveWithStatic(result.models, static, provider, provider)
+		}
+		if result.owner == owner {
+			break
+		}
 	}
 
 	if cached, _ := s.loadLiveModelCache(provider); len(cached) > 0 {

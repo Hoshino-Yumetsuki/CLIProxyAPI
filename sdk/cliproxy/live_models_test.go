@@ -3,6 +3,8 @@ package cliproxy
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -129,6 +131,136 @@ func TestResolveLiveOrStaticModels_FallbackChain(t *testing.T) {
 	})
 	if len(models) != 1 || models[0].ID != "live-model" {
 		t.Fatalf("empty live must preserve cache, got %#v", models)
+	}
+}
+
+func TestResolveLiveOrStaticModels_ConcurrentSuccessFetchesOnce(t *testing.T) {
+	service := &Service{cfg: &config.Config{AuthDir: t.TempDir()}}
+	const callers = 8
+	start := make(chan struct{})
+	release := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(callers)
+	var fetchCalls atomic.Int32
+	results := make(chan []*ModelInfo, callers)
+
+	for i := 0; i < callers; i++ {
+		go func(id int) {
+			ready.Done()
+			<-start
+			models := service.resolveLiveOrStaticModels(context.Background(), &coreauth.Auth{ID: string(rune('a' + id)), Provider: "claude"}, "claude", nil, func(context.Context) ([]*ModelInfo, error) {
+				fetchCalls.Add(1)
+				<-release
+				return []*ModelInfo{{ID: "live-model"}}, nil
+			})
+			results <- models
+		}(i)
+	}
+	ready.Wait()
+	close(start)
+	for fetchCalls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+
+	for i := 0; i < callers; i++ {
+		models := <-results
+		if len(models) != 1 || models[0].ID != "live-model" {
+			t.Fatalf("caller got %#v", models)
+		}
+	}
+	if got := fetchCalls.Load(); got != 1 {
+		t.Fatalf("fetch calls=%d want 1", got)
+	}
+}
+
+func TestResolveLiveOrStaticModels_ConcurrentFailureThenSuccessStopsRetries(t *testing.T) {
+	service := &Service{cfg: &config.Config{AuthDir: t.TempDir()}}
+	const callers = 8
+	start := make(chan struct{})
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(callers)
+	var fetchCalls atomic.Int32
+	results := make(chan []*ModelInfo, callers)
+
+	static := []*ModelInfo{{ID: "static-model"}}
+	for i := 0; i < callers; i++ {
+		go func(id int) {
+			ready.Done()
+			<-start
+			models := service.resolveLiveOrStaticModels(context.Background(), &coreauth.Auth{ID: string(rune('a' + id)), Provider: "claude"}, "claude", static, func(context.Context) ([]*ModelInfo, error) {
+				call := fetchCalls.Add(1)
+				if call == 1 {
+					close(firstStarted)
+					<-releaseFirst
+					return nil, errors.New("first fetch failed")
+				}
+				return []*ModelInfo{{ID: "live-model"}}, nil
+			})
+			results <- models
+		}(i)
+	}
+	ready.Wait()
+	close(start)
+	<-firstStarted
+	close(releaseFirst)
+
+	for i := 0; i < callers; i++ {
+		models := <-results
+		if len(models) != 1 || (models[0].ID != "live-model" && models[0].ID != "static-model") {
+			t.Fatalf("caller got %#v", models)
+		}
+	}
+	if got := fetchCalls.Load(); got != 2 {
+		t.Fatalf("fetch calls=%d want 2", got)
+	}
+}
+
+func TestResolveLiveOrStaticModels_CanceledWaiterReturnsFallback(t *testing.T) {
+	service := &Service{cfg: &config.Config{AuthDir: t.TempDir()}}
+	static := []*ModelInfo{{ID: "static-model"}}
+	leaderStarted := make(chan struct{})
+	releaseLeader := make(chan struct{})
+	leaderDone := make(chan []*ModelInfo, 1)
+
+	go func() {
+		leaderDone <- service.resolveLiveOrStaticModels(context.Background(), &coreauth.Auth{ID: "leader", Provider: "claude"}, "claude", static, func(context.Context) ([]*ModelInfo, error) {
+			close(leaderStarted)
+			<-releaseLeader
+			return []*ModelInfo{{ID: "live-model"}}, nil
+		})
+	}()
+	<-leaderStarted
+
+	waiterCtx, cancelWaiter := context.WithCancel(context.Background())
+	waiterDone := make(chan []*ModelInfo, 1)
+	go func() {
+		waiterDone <- service.resolveLiveOrStaticModels(waiterCtx, &coreauth.Auth{ID: "waiter", Provider: "claude"}, "claude", static, func(context.Context) ([]*ModelInfo, error) {
+			t.Error("canceled waiter must not fetch")
+			return nil, nil
+		})
+	}()
+	cancelWaiter()
+
+	select {
+	case models := <-waiterDone:
+		if len(models) != 1 || models[0].ID != "static-model" {
+			t.Fatalf("waiter got %#v", models)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled waiter did not return promptly")
+	}
+
+	close(releaseLeader)
+	select {
+	case models := <-leaderDone:
+		if len(models) != 1 || models[0].ID != "live-model" {
+			t.Fatalf("leader got %#v", models)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leader did not complete")
 	}
 }
 

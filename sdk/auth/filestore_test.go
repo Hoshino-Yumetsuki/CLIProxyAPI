@@ -244,7 +244,6 @@ func TestFileTokenStoreListSkipsInvalidPluginSourceWeight(t *testing.T) {
 	t.Cleanup(func() {
 		RegisterPluginAuthParser(nil)
 	})
-
 	store := NewFileTokenStore()
 	store.SetBaseDir(baseDir)
 	auths, errList := store.List(context.Background())
