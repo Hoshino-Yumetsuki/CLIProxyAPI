@@ -38,6 +38,7 @@ import (
 	sdkpluginstore "github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginstore"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 )
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
@@ -141,8 +142,9 @@ type Service struct {
 
 	// liveModelCache stores last-success per-provider upstream model lists in memory only.
 	// Keyed by provider so credentials of the same type share one successful fetch (TTL 3h).
-	liveModelCacheMu sync.RWMutex
-	liveModelCache   map[string]liveModelCacheEntry
+	liveModelCacheMu    sync.RWMutex
+	liveModelCache      map[string]liveModelCacheEntry
+	liveModelFetchGroup singleflight.Group
 }
 
 type homeSubscriberSupervisor struct {

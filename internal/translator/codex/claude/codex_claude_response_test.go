@@ -587,6 +587,69 @@ func TestConvertCodexResponseToClaude_StreamFunctionCallDefersStartUntilDoneName
 	}
 }
 
+func TestConvertCodexResponseToClaude_StreamInterleavedNamedFunctionCallsReverseCompletion(t *testing.T) {
+	ctx := context.Background()
+	originalRequest := []byte(`{"tools":[{"name":"lookup","description":"lookup"}]}`)
+	var param any
+
+	chunks := [][]byte{
+		[]byte(`data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_a","name":"lookup"},"output_index":4}`),
+		[]byte(`data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_b","name":"lookup"},"output_index":7}`),
+		[]byte(`data: {"type":"response.function_call_arguments.delta","delta":"{\"a\":","output_index":4}`),
+		[]byte(`data: {"type":"response.function_call_arguments.delta","delta":"{\"b\":2}","output_index":7}`),
+		[]byte(`data: {"type":"response.function_call_arguments.done","arguments":"{\"b\":2}","output_index":7}`),
+		[]byte(`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_b","name":"lookup","arguments":"{\"b\":2}"},"output_index":7}`),
+		[]byte(`data: {"type":"response.function_call_arguments.delta","delta":"1}","output_index":4}`),
+		[]byte(`data: {"type":"response.function_call_arguments.done","arguments":"{\"a\":1}","output_index":4}`),
+		[]byte(`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_a","name":"lookup","arguments":"{\"a\":1}"},"output_index":4}`),
+	}
+
+	var outputs [][]byte
+	for _, chunk := range chunks {
+		outputs = append(outputs, ConvertCodexResponseToClaude(ctx, "", originalRequest, nil, chunk, &param)...)
+	}
+
+	var toolIDs []string
+	argumentDeltas := map[int64][]string{}
+	var stopIndices []int64
+	for _, out := range outputs {
+		for _, line := range strings.Split(string(out), "\n") {
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := gjson.Parse(strings.TrimPrefix(line, "data: "))
+			switch data.Get("type").String() {
+			case "content_block_start":
+				if data.Get("content_block.type").String() == "tool_use" {
+					toolIDs = append(toolIDs, data.Get("content_block.id").String())
+				}
+			case "content_block_delta":
+				if data.Get("delta.type").String() == "input_json_delta" {
+					index := data.Get("index").Int()
+					if delta := data.Get("delta.partial_json").String(); delta != "" {
+						argumentDeltas[index] = append(argumentDeltas[index], delta)
+					}
+				}
+			case "content_block_stop":
+				stopIndices = append(stopIndices, data.Get("index").Int())
+			}
+		}
+	}
+
+	if got, want := strings.Join(toolIDs, ","), "call_a,call_b"; got != want {
+		t.Fatalf("tool IDs = %s, want %s; outputs=%q", got, want, outputs)
+	}
+	if got, want := strings.Join(argumentDeltas[0], ""), `{"a":1}`; got != want {
+		t.Fatalf("call A arguments = %q, want %q; deltas=%v", got, want, argumentDeltas)
+	}
+	if got, want := strings.Join(argumentDeltas[1], ""), `{"b":2}`; got != want {
+		t.Fatalf("call B arguments = %q, want %q; deltas=%v", got, want, argumentDeltas)
+	}
+	if len(stopIndices) != 2 || stopIndices[0] != 1 || stopIndices[1] != 0 {
+		t.Fatalf("stop indices = %v, want [1 0]; outputs=%q", stopIndices, outputs)
+	}
+}
+
 func TestConvertCodexResponseToClaude_StreamUnnamedFunctionCallDoneByCallIDKeepsPendingSlots(t *testing.T) {
 	ctx := context.Background()
 	originalRequest := []byte(`{"tools":[{"name":"lookup","description":"lookup"}]}`)

@@ -87,6 +87,34 @@ func TestExtractAccessToken(t *testing.T) {
 	}
 }
 
+func TestFileTokenStoreListSkipsModelCache(t *testing.T) {
+	baseDir := t.TempDir()
+	nestedPath := filepath.Join(baseDir, "nested", "auth.json")
+	if errMkdir := os.MkdirAll(filepath.Dir(nestedPath), 0o700); errMkdir != nil {
+		t.Fatalf("create nested auth directory: %v", errMkdir)
+	}
+	if errWrite := os.WriteFile(nestedPath, []byte(`{"type":"codex"}`), 0o600); errWrite != nil {
+		t.Fatalf("write nested auth file: %v", errWrite)
+	}
+	cachePath := filepath.Join(baseDir, ".model-cache", "cached.json")
+	if errMkdir := os.MkdirAll(filepath.Dir(cachePath), 0o700); errMkdir != nil {
+		t.Fatalf("create model cache directory: %v", errMkdir)
+	}
+	if errWrite := os.WriteFile(cachePath, []byte(`{"type":"codex"}`), 0o600); errWrite != nil {
+		t.Fatalf("write cached auth file: %v", errWrite)
+	}
+
+	store := NewFileTokenStore()
+	store.SetBaseDir(baseDir)
+	auths, errList := store.List(context.Background())
+	if errList != nil {
+		t.Fatalf("List() error = %v", errList)
+	}
+	if len(auths) != 1 || auths[0].ID != filepath.Join("nested", "auth.json") {
+		t.Fatalf("List() auths = %#v, want nested auth only", auths)
+	}
+}
+
 func TestFileTokenStoreListExpandsPluginMultiAuths(t *testing.T) {
 	baseDir := t.TempDir()
 	path := filepath.Join(baseDir, "geminicli.json")
