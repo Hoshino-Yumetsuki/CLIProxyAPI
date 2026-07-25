@@ -26,7 +26,6 @@ func TestSortClaudeModelsByDisplayName(t *testing.T) {
 		}
 	}
 }
-
 func TestClaudeModelsResponseUsesConfiguredDisplayName(t *testing.T) {
 	const clientID = "claude-display-name-catalog-test"
 	const modelID = "claude-display-name-catalog-test"
