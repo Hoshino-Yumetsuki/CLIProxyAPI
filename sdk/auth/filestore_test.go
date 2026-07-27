@@ -87,31 +87,62 @@ func TestExtractAccessToken(t *testing.T) {
 	}
 }
 
-func TestFileTokenStoreListSkipsModelCache(t *testing.T) {
-	baseDir := t.TempDir()
-	nestedPath := filepath.Join(baseDir, "nested", "auth.json")
-	if errMkdir := os.MkdirAll(filepath.Dir(nestedPath), 0o700); errMkdir != nil {
-		t.Fatalf("create nested auth directory: %v", errMkdir)
-	}
-	if errWrite := os.WriteFile(nestedPath, []byte(`{"type":"codex"}`), 0o600); errWrite != nil {
-		t.Fatalf("write nested auth file: %v", errWrite)
-	}
-	cachePath := filepath.Join(baseDir, ".model-cache", "cached.json")
-	if errMkdir := os.MkdirAll(filepath.Dir(cachePath), 0o700); errMkdir != nil {
-		t.Fatalf("create model cache directory: %v", errMkdir)
-	}
-	if errWrite := os.WriteFile(cachePath, []byte(`{"type":"codex"}`), 0o600); errWrite != nil {
-		t.Fatalf("write cached auth file: %v", errWrite)
+func TestFileTokenStoreSaveExistingMetadataSetsFileAttributes(t *testing.T) {
+	tests := []struct {
+		name          string
+		existingToken string
+		savedToken    string
+	}{
+		{name: "unchanged content", existingToken: "token", savedToken: "token"},
+		{name: "overwritten content", existingToken: "old-token", savedToken: "new-token"},
 	}
 
-	store := NewFileTokenStore()
-	store.SetBaseDir(baseDir)
-	auths, errList := store.List(context.Background())
-	if errList != nil {
-		t.Fatalf("List() error = %v", errList)
-	}
-	if len(auths) != 1 || auths[0].ID != filepath.Join("nested", "auth.json") {
-		t.Fatalf("List() auths = %#v, want nested auth only", auths)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			fileName := "antigravity-user.json"
+			path := filepath.Join(baseDir, fileName)
+			existing := []byte(`{"type":"antigravity","access_token":"` + tt.existingToken + `","disabled":false}`)
+			if errWrite := os.WriteFile(path, existing, 0o600); errWrite != nil {
+				t.Fatalf("write existing auth file: %v", errWrite)
+			}
+
+			store := NewFileTokenStore()
+			store.SetBaseDir(baseDir)
+			auth := &cliproxyauth.Auth{
+				ID:       fileName,
+				FileName: fileName,
+				Metadata: map[string]any{
+					"type":         "antigravity",
+					"access_token": tt.savedToken,
+				},
+			}
+
+			savedPath, errSave := store.Save(context.Background(), auth)
+			if errSave != nil {
+				t.Fatalf("Save() error = %v", errSave)
+			}
+			if savedPath != path {
+				t.Fatalf("Save() path = %q, want %q", savedPath, path)
+			}
+			if got := auth.Attributes[cliproxyauth.AttributePath]; got != path {
+				t.Errorf("path attribute = %q, want %q", got, path)
+			}
+			if got := auth.Attributes[cliproxyauth.AttributeSource]; got != path {
+				t.Errorf("source attribute = %q, want %q", got, path)
+			}
+			if got := auth.Attributes[cliproxyauth.AttributeSourceBackend]; got != cliproxyauth.AuthSourceFile {
+				t.Errorf("source backend attribute = %q, want %q", got, cliproxyauth.AuthSourceFile)
+			}
+			persisted, errRead := os.ReadFile(path)
+			if errRead != nil {
+				t.Fatalf("read saved auth file: %v", errRead)
+			}
+			expected := []byte(`{"type":"antigravity","access_token":"` + tt.savedToken + `","disabled":false}`)
+			if !jsonEqual(persisted, expected) {
+				t.Errorf("saved auth file = %s, want JSON equal to %s", persisted, expected)
+			}
+		})
 	}
 }
 

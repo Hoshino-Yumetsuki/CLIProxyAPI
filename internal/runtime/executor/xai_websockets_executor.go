@@ -507,7 +507,7 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 	}
 	reporter.SetTranslatedReasoningEffort(prepared.body, e.Identifier())
 
-	wsHeaders := applyXAIWebsocketHeaders(http.Header{}, auth, token, prepared.sessionID, prepared.baseModel)
+	wsHeaders := applyXAIWebsocketHeaders(http.Header{}, auth, token, prepared.sessionID)
 	wsReqBody := buildXAIWebsocketRequestBody(prepared.body)
 	requestType := strings.TrimSpace(gjson.GetBytes(req.Payload, "type").String())
 	transcriptReset := strings.TrimSpace(gjson.GetBytes(wsReqBody, "previous_response_id").String()) == "" &&
@@ -1439,7 +1439,7 @@ func buildXAIResponsesWebsocketURL(httpURL string) (string, error) {
 	return parsed.String(), nil
 }
 
-func applyXAIWebsocketHeaders(headers http.Header, auth *cliproxyauth.Auth, token string, sessionID, model string) http.Header {
+func applyXAIWebsocketHeaders(headers http.Header, auth *cliproxyauth.Auth, token string, sessionID string) http.Header {
 	if headers == nil {
 		headers = http.Header{}
 	}
@@ -1447,19 +1447,8 @@ func applyXAIWebsocketHeaders(headers http.Header, auth *cliproxyauth.Auth, toke
 	if strings.TrimSpace(token) != "" {
 		headers.Set("Authorization", "Bearer "+token)
 	}
-	// WS upgrades go to the official API host, but still stamp per-auth
-	// device/session identity so multi-account traffic does not share one fingerprint.
-	profile := helps.ResolveXAIDeviceProfile(auth)
-	headers.Set("x-grok-agent-id", profile.AgentID)
-	headers.Set("x-grok-session-id", profile.SessionID)
-	headers.Set("x-grok-client-identifier", profile.ClientIdentifier)
-	headers.Set("x-grok-client-version", profile.ClientVersion)
-	headers.Set("User-Agent", profile.UserAgent())
 	if sessionID != "" {
 		headers.Set("x-grok-conv-id", sessionID)
-	}
-	if model = strings.TrimSpace(model); model != "" {
-		headers.Set("x-grok-model-override", model)
 	}
 	var attrs map[string]string
 	if auth != nil {
@@ -1605,25 +1594,9 @@ func NewXAIAutoExecutor(cfg *config.Config) *XAIAutoExecutor {
 
 func (e *XAIAutoExecutor) Identifier() string { return "xai" }
 
-func (e *XAIAutoExecutor) ShouldPrepareRequestAuth(auth *cliproxyauth.Auth) bool {
-	if e == nil || e.httpExec == nil {
-		return helps.XAIDeviceProfileMissing(auth)
-	}
-	return e.httpExec.ShouldPrepareRequestAuth(auth)
-}
-
-func (e *XAIAutoExecutor) PrepareRequestAuth(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	if e == nil || e.httpExec == nil {
-		if auth == nil {
-			return nil, nil
-		}
-		updated := auth.Clone()
-		if _, changed := helps.EnsureXAIDeviceProfileInAuth(updated); !changed {
-			return auth, nil
-		}
-		return updated, nil
-	}
-	return e.httpExec.PrepareRequestAuth(ctx, auth)
+// UsesConfig reports whether the executor was created for cfg.
+func (e *XAIAutoExecutor) UsesConfig(cfg *config.Config) bool {
+	return e != nil && e.httpExec != nil && e.httpExec.cfg == cfg
 }
 
 func (e *XAIAutoExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {

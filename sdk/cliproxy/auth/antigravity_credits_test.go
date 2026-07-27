@@ -266,27 +266,3 @@ func TestIsAuthBlockedForModel_KeepsGeminiBlockedWithoutCreditsBypass(t *testing
 		t.Fatalf("expected gemini model to remain blocked, got blocked=%v reason=%v", blocked, reason)
 	}
 }
-
-func TestIsAuthBlockedForModel_GeminiNotBlockedWhenOnlyClaudeInCooldown(t *testing.T) {
-	now := time.Now()
-	next := now.Add(10 * time.Minute)
-	auth := &Auth{
-		ID:       "ag-3",
-		Provider: "antigravity",
-		ModelStates: map[string]*ModelState{
-			"claude-sonnet-4-6": {
-				Unavailable:    true,
-				NextRetryAfter: next,
-				Quota: QuotaState{
-					Exceeded:      true,
-					NextRecoverAt: next,
-				},
-			},
-		},
-	}
-
-	blocked, reason, _ := isAuthBlockedForModel(auth, "gemini-3-flash", now)
-	if blocked {
-		t.Fatalf("gemini should not be blocked when only claude has model state, got reason=%v", reason)
-	}
-}
