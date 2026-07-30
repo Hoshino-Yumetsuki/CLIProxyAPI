@@ -17,6 +17,7 @@ import (
 
 	gin "github.com/gin-gonic/gin"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v7/internal/api/handlers/management"
+	claudemodels "github.com/router-for-me/CLIProxyAPI/v7/internal/client/claude/models"
 	proxyconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/pluginhost"
@@ -1370,6 +1371,7 @@ func TestModelsDispatchByAnthropicVersionHeader(t *testing.T) {
 
 		var claudeModel map[string]any
 		var gptModel map[string]any
+		var cloakedGPTModel map[string]any
 		for _, m := range resp.Data {
 			id, _ := m["id"].(string)
 			switch id {
@@ -1377,15 +1379,17 @@ func TestModelsDispatchByAnthropicVersionHeader(t *testing.T) {
 				claudeModel = m
 			case "gpt-4o":
 				gptModel = m
-			case "claude-gpt-4o", "claude-fable-5-dd-o4-tpg":
-				t.Fatalf("expected raw non-claude model ids on Anthropic listings, got %q", id)
+			case "claude-fable-5-dd-o4-tpg":
+				cloakedGPTModel = m
+			case "claude-gpt-4o":
+				t.Fatalf("unexpected legacy cloaked model id %q", id)
 			}
 		}
 		if claudeModel == nil {
 			t.Fatalf("expected claude-sonnet-4-6 in response, got %s", rr.Body.String())
 		}
-		if gptModel == nil {
-			t.Fatalf("expected raw gpt-4o in response, got %s", rr.Body.String())
+		if gptModel != nil || cloakedGPTModel == nil {
+			t.Fatalf("expected cloaked gpt-4o in response, got %s", rr.Body.String())
 		}
 		for _, field := range []string{"max_input_tokens", "max_tokens", "display_name"} {
 			if _, ok := claudeModel[field]; !ok {
@@ -1432,6 +1436,56 @@ func TestModelsDispatchByAnthropicVersionHeader(t *testing.T) {
 			t.Fatalf("expected raw gpt-4o in OpenAI format response, got %s", rr.Body.String())
 		}
 	})
+}
+
+func TestClaudeModelListCloakingConfigHotReload(t *testing.T) {
+	modelRegistry := registry.GetGlobalRegistry()
+	clientID := "test-claude-model-list-cloaking-hot-reload"
+	const modelID = "gpt-model-list-hot-reload"
+	modelRegistry.RegisterClient(clientID, "claude", []*registry.ModelInfo{{
+		ID: modelID, Object: "model", OwnedBy: "test", Type: "openai",
+	}})
+	t.Cleanup(func() {
+		modelRegistry.UnregisterClient(clientID)
+	})
+
+	server := newTestServer(t)
+	assertModelID := func(want string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		req.Header.Set("Authorization", "Bearer test-key")
+		req.Header.Set("Anthropic-Version", "2023-06-01")
+
+		recorder := httptest.NewRecorder()
+		server.engine.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+		}
+
+		var response struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if errUnmarshal := json.Unmarshal(recorder.Body.Bytes(), &response); errUnmarshal != nil {
+			t.Fatalf("decode response: %v", errUnmarshal)
+		}
+		for _, model := range response.Data {
+			if model.ID == want {
+				return
+			}
+		}
+		t.Fatalf("model %q not found in response: %s", want, recorder.Body.String())
+	}
+
+	assertModelID(claudemodels.EnsureClaudeModelIDPrefix(modelID))
+
+	updatedCfg := *server.cfg
+	updatedCfg.SDKConfig = server.cfg.SDKConfig
+	updatedCfg.ClaudeCode.DisableCloakingModelList = true
+	server.UpdateClients(&updatedCfg)
+
+	assertModelID(modelID)
 }
 
 func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
@@ -1533,7 +1587,7 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 	if got, _ := custom["context_window"].(float64); got != 123456 {
 		t.Fatalf("custom context_window = %v, want 123456", custom["context_window"])
 	}
-	assertCodexSupportedReasoningLevels(t, custom, []string{"none", "low", "medium", "high", "xhigh"})
+	assertCodexSupportedReasoningLevels(t, custom, []string{"none", "minimal", "low", "medium", "high", "xhigh"})
 	if custom["base_instructions"] != gpt55["base_instructions"] {
 		t.Fatal("expected custom model to use gpt-5.5 base_instructions fallback")
 	}

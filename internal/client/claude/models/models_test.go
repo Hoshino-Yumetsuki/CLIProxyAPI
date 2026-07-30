@@ -10,13 +10,13 @@ func TestBuildResponse(t *testing.T) {
 		{"id": "claude-b", "display_name": "Beta"},
 	}
 
-	response := BuildResponse(availableModels)
+	response := BuildResponse(availableModels, false)
 	models, ok := response["data"].([]map[string]any)
 	if !ok {
 		t.Fatalf("data type = %T, want []map[string]any", response["data"])
 	}
 
-	wantIDs := []string{"claude-c", "gpt-4o", "claude-b", "claude-z"}
+	wantIDs := []string{"claude-c", "claude-fable-5-dd-o4-tpg", "claude-b", "claude-z"}
 	if len(models) != len(wantIDs) {
 		t.Fatalf("len(data) = %d, want %d", len(models), len(wantIDs))
 	}
@@ -46,8 +46,32 @@ func TestBuildResponse(t *testing.T) {
 	}
 }
 
+func TestBuildResponseWithCloakingDisabled(t *testing.T) {
+	availableModels := []map[string]any{
+		{"id": "gpt-4o", "display_name": "GPT-4o"},
+	}
+
+	response := BuildResponse(availableModels, true)
+	models, ok := response["data"].([]map[string]any)
+	if !ok {
+		t.Fatalf("data type = %T, want []map[string]any", response["data"])
+	}
+	if len(models) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(models))
+	}
+	if got := models[0]["id"]; got != "gpt-4o" {
+		t.Fatalf("data[0].id = %v, want gpt-4o", got)
+	}
+	if got := response["first_id"]; got != "gpt-4o" {
+		t.Fatalf("first_id = %v, want gpt-4o", got)
+	}
+	if got := response["last_id"]; got != "gpt-4o" {
+		t.Fatalf("last_id = %v, want gpt-4o", got)
+	}
+}
+
 func TestBuildResponseEmpty(t *testing.T) {
-	response := BuildResponse(nil)
+	response := BuildResponse(nil, false)
 	models, ok := response["data"].([]map[string]any)
 	if !ok {
 		t.Fatalf("data type = %T, want []map[string]any", response["data"])

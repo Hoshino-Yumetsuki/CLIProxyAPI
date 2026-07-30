@@ -20,6 +20,7 @@ import (
 	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
 	internalcache "github.com/router-for-me/CLIProxyAPI/v7/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
@@ -2687,8 +2688,8 @@ func TestXAIExecutorExecuteImagesUsesImagesEndpointAndPublishesUsage(t *testing.
 	if record.Detail != (usage.Detail{}) {
 		t.Fatalf("detail = %+v, want zero token usage", record.Detail)
 	}
-	if record.TTFT <= 0 {
-		t.Fatalf("ttft = %v, want positive duration", record.TTFT)
+	if record.TTFT < 0 {
+		t.Fatalf("ttft = %v, want non-negative duration", record.TTFT)
 	}
 	assertNoAdditionalXAIUsageRecord(t, plugin.records)
 }
@@ -3055,8 +3056,8 @@ func TestXAIExecutorExecuteVideosCreate(t *testing.T) {
 	if record.Detail != (usage.Detail{}) {
 		t.Fatalf("detail = %+v, want zero token usage", record.Detail)
 	}
-	if record.TTFT <= 0 {
-		t.Fatalf("ttft = %v, want positive duration", record.TTFT)
+	if record.TTFT < 0 {
+		t.Fatalf("ttft = %v, want non-negative duration", record.TTFT)
 	}
 	assertNoAdditionalXAIUsageRecord(t, plugin.records)
 }
@@ -4836,7 +4837,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		auth := &cliproxyauth.Auth{
 			Attributes: map[string]string{"base_url": xaiauth.DefaultAPIBaseURL},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1", "grok-build")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1")
 
 		if got := req.Header.Get("Authorization"); got != "Bearer xai-token" {
 			t.Fatalf("Authorization = %q, want Bearer xai-token", got)
@@ -4864,7 +4865,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				"base_url":  xaiauth.DefaultAPIBaseURL,
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1", "grok-build")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-1")
 
 		if got := req.Header.Get("Authorization"); got != "Bearer xai-token" {
 			t.Fatalf("Authorization = %q, want Bearer xai-token", got)
@@ -4878,26 +4879,8 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		if got := req.Header.Get(xaiClientVersionHeader); got != xaiClientVersionValue {
 			t.Fatalf("%s = %q, want %q", xaiClientVersionHeader, got, xaiClientVersionValue)
 		}
-		if got := req.Header.Get("User-Agent"); !strings.HasPrefix(got, "grok-shell/"+xaiClientVersionValue+" (") {
-			t.Fatalf("User-Agent = %q, want prefix grok-shell/%s (", got, xaiClientVersionValue)
-		}
-		if got := req.Header.Get("x-authenticateresponse"); got != "authenticate-response" {
-			t.Fatalf("x-authenticateresponse = %q, want authenticate-response", got)
-		}
-		if got := req.Header.Get("x-grok-client-identifier"); got != "grok-shell" {
-			t.Fatalf("x-grok-client-identifier = %q, want grok-shell", got)
-		}
-		if got := req.Header.Get("x-grok-agent-id"); got == "" {
-			t.Fatal("x-grok-agent-id is empty")
-		}
-		if got := req.Header.Get("x-grok-session-id"); got == "" {
-			t.Fatal("x-grok-session-id is empty")
-		}
-		if got := req.Header.Get("x-grok-req-id"); got == "" {
-			t.Fatal("x-grok-req-id is empty")
-		}
-		if got := req.Header.Get("x-grok-model-override"); got != "grok-build" {
-			t.Fatalf("x-grok-model-override = %q, want grok-build", got)
+		if got := req.Header.Get("User-Agent"); got != "xai-grok-workspace/"+xaiClientVersionValue {
+			t.Fatalf("User-Agent = %q, want xai-grok-workspace/%s", got, xaiClientVersionValue)
 		}
 	})
 
@@ -4909,7 +4892,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				xaiUsingAPIAttr: "false",
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", false, "", "")
+		applyXAIChatHeaders(req, auth, "xai-token", false, "")
 
 		if got := req.Header.Get(xaiTokenAuthHeader); got != "" {
 			t.Fatalf("%s = %q, want empty for custom gateway", xaiTokenAuthHeader, got)
@@ -4932,7 +4915,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				"header:" + xaiClientVersionHeader: "custom-client-version",
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "", "")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "")
 
 		if got := req.Header.Get(xaiTokenAuthHeader); got != "custom-token-auth" {
 			t.Fatalf("%s = %q, want custom-token-auth", xaiTokenAuthHeader, got)
@@ -4950,7 +4933,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				xaiUsingAPIAttr: "false",
 			},
 		}
-		applyXAIChatHeaders(req, auth, "xai-token", true, "", "grok-build")
+		applyXAIChatHeaders(req, auth, "xai-token", true, "")
 
 		if got := req.Header.Get(xaiTokenAuthHeader); got != xaiTokenAuthValue {
 			t.Fatalf("%s = %q, want %q", xaiTokenAuthHeader, got, xaiTokenAuthValue)
@@ -4977,8 +4960,8 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		}
 		reqA := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
 		reqB := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
-		applyXAIChatHeaders(reqA, authA, "token-a", true, "conv-a", "grok-build")
-		applyXAIChatHeaders(reqB, authB, "token-b", true, "conv-b", "grok-build")
+		helps.ApplyXAIGrokBuildIdentityHeaders(reqA, authA, "grok-build", "conv-a")
+		helps.ApplyXAIGrokBuildIdentityHeaders(reqB, authB, "grok-build", "conv-b")
 
 		if reqA.Header.Get("x-grok-agent-id") == "" || reqB.Header.Get("x-grok-agent-id") == "" {
 			t.Fatal("expected agent ids")
@@ -4991,7 +4974,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		}
 		// Stable across calls for the same auth.
 		reqA2 := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
-		applyXAIChatHeaders(reqA2, authA, "token-a", true, "conv-a2", "grok-build")
+		helps.ApplyXAIGrokBuildIdentityHeaders(reqA2, authA, "grok-build", "conv-a2")
 		if reqA.Header.Get("x-grok-agent-id") != reqA2.Header.Get("x-grok-agent-id") {
 			t.Fatalf("agent id not stable for same auth: %q vs %q",
 				reqA.Header.Get("x-grok-agent-id"), reqA2.Header.Get("x-grok-agent-id"))

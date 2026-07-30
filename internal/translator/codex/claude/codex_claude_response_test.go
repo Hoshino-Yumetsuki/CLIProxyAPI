@@ -723,8 +723,8 @@ func TestConvertCodexResponseToClaude_StreamInterleavedNamedFunctionCallsReverse
 	if got, want := strings.Join(argumentDeltas[1], ""), `{"b":2}`; got != want {
 		t.Fatalf("call B arguments = %q, want %q; deltas=%v", got, want, argumentDeltas)
 	}
-	if len(stopIndices) != 2 || stopIndices[0] != 1 || stopIndices[1] != 0 {
-		t.Fatalf("stop indices = %v, want [1 0]; outputs=%q", stopIndices, outputs)
+	if len(stopIndices) != 2 || stopIndices[0] != 0 || stopIndices[1] != 1 {
+		t.Fatalf("stop indices = %v, want [0 1]; outputs=%q", stopIndices, outputs)
 	}
 }
 
@@ -942,7 +942,7 @@ func TestConvertCodexResponseToClaude_StreamUnresolvedPendingFunctionCallDoesNot
 		t.Fatalf("stop_reason = %q, want end_turn. Outputs=%q", gotReason, outputs)
 	}
 	params, ok := param.(*ConvertCodexResponseToClaudeParams)
-	if !ok || len(params.PendingFunctionCalls) != 0 || params.LastPendingFunctionCallKey != "" {
+	if !ok || len(params.FunctionCalls) != 0 || len(params.FunctionCallQueue) != 0 || params.LastFunctionCall != nil {
 		t.Fatalf("pending function calls were not cleared: %#v", param)
 	}
 }
