@@ -77,6 +77,10 @@ type ModelInfo struct {
 	// array (e.g., openai-compatibility.*.models[], *-api-key.models[]).
 	// UserDefined models have thinking configuration passed through without validation.
 	UserDefined bool `json:"-"`
+
+	// IsCompat enables compatibility handling for this configured API-key model.
+	// It is internal metadata and is not exposed in model listings.
+	IsCompat bool `json:"-"`
 }
 
 // ModelConfig holds optional runtime overrides for a model definition.
@@ -838,74 +842,85 @@ func (r *ModelRegistry) GetAvailableModels(handlerType string) []map[string]any 
 	return models
 }
 
+func (r *ModelRegistry) modelRegistrationAvailabilityLocked(registration *ModelRegistration, now time.Time) (bool, time.Time) {
+	if registration == nil {
+		return false, time.Time{}
+	}
+
+	var expiresAt time.Time
+	for provider, providerClientCount := range registration.Providers {
+		if providerClientCount <= 0 {
+			continue
+		}
+
+		expiredClients := 0
+		cooldownSuspended := 0
+		otherSuspended := 0
+		for clientID, quotaTime := range registration.QuotaExceededClients {
+			if quotaTime == nil || r.clientProviders[clientID] != provider {
+				continue
+			}
+			recoveryAt := quotaTime.Add(modelQuotaExceededWindow)
+			if now.Before(recoveryAt) {
+				expiredClients++
+				if expiresAt.IsZero() || recoveryAt.Before(expiresAt) {
+					expiresAt = recoveryAt
+				}
+			}
+		}
+		for clientID, reason := range registration.SuspendedClients {
+			if r.clientProviders[clientID] != provider {
+				continue
+			}
+			if strings.EqualFold(reason, "quota") {
+				cooldownSuspended++
+			} else {
+				otherSuspended++
+			}
+		}
+
+		effectiveClients := providerClientCount - expiredClients - otherSuspended
+		if effectiveClients > 0 || (expiredClients > 0 || cooldownSuspended > 0) && otherSuspended == 0 {
+			return true, expiresAt
+		}
+	}
+	return false, expiresAt
+}
+
+// GetAvailableModelInfos returns cloned metadata for all currently available models.
+func (r *ModelRegistry) GetAvailableModelInfos() []*ModelInfo {
+	now := time.Now()
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	result := make([]*ModelInfo, 0, len(r.models))
+	for _, registration := range r.models {
+		available, _ := r.modelRegistrationAvailabilityLocked(registration, now)
+		if !available || registration == nil || registration.Info == nil {
+			continue
+		}
+		result = append(result, cloneModelInfo(registration.Info))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return strings.TrimSpace(result[i].ID) < strings.TrimSpace(result[j].ID)
+	})
+	return result
+}
+
 func (r *ModelRegistry) buildAvailableModelsLocked(handlerType string, now time.Time) ([]map[string]any, time.Time) {
 	models := make([]map[string]any, 0, len(r.models))
 	var expiresAt time.Time
 
 	for _, registration := range r.models {
-		// Check availability per-provider to respect provider isolation.
-		// A model is available if ANY provider has available clients.
-		hasAvailableProvider := false
-
-		for provider, providerClientCount := range registration.Providers {
-			if providerClientCount <= 0 {
-				continue
-			}
-
-			// Count quota-exceeded clients for this provider
-			expiredClients := 0
-			for clientID, quotaTime := range registration.QuotaExceededClients {
-				if quotaTime == nil {
-					continue
-				}
-				// Check if this client belongs to this provider
-				if p, ok := r.clientProviders[clientID]; !ok || p != provider {
-					continue
-				}
-				recoveryAt := quotaTime.Add(modelQuotaExceededWindow)
-				if now.Before(recoveryAt) {
-					expiredClients++
-					if expiresAt.IsZero() || recoveryAt.Before(expiresAt) {
-						expiresAt = recoveryAt
-					}
-				}
-			}
-
-			// Count suspended clients for this provider
-			cooldownSuspended := 0
-			otherSuspended := 0
-			if registration.SuspendedClients != nil {
-				for clientID, reason := range registration.SuspendedClients {
-					// Check if this client belongs to this provider
-					if p, ok := r.clientProviders[clientID]; !ok || p != provider {
-						continue
-					}
-					if strings.EqualFold(reason, "quota") {
-						cooldownSuspended++
-						continue
-					}
-					otherSuspended++
-				}
-			}
-
-			// Calculate effective clients for this provider
-			effectiveClients := providerClientCount - expiredClients - otherSuspended
-			if effectiveClients < 0 {
-				effectiveClients = 0
-			}
-
-			// Provider is available if it has effective clients OR has clients in cooldown/quota recovery
-			if effectiveClients > 0 || (providerClientCount > 0 && (expiredClients > 0 || cooldownSuspended > 0) && otherSuspended == 0) {
-				hasAvailableProvider = true
-				break
-			}
+		available, registrationExpiresAt := r.modelRegistrationAvailabilityLocked(registration, now)
+		if !registrationExpiresAt.IsZero() && (expiresAt.IsZero() || registrationExpiresAt.Before(expiresAt)) {
+			expiresAt = registrationExpiresAt
 		}
-
-		if hasAvailableProvider {
-			model := r.convertModelToMap(registration.Info, handlerType)
-			if model != nil {
-				models = append(models, model)
-			}
+		if !available {
+			continue
+		}
+		if model := r.convertModelToMap(registration.Info, handlerType); model != nil {
+			models = append(models, model)
 		}
 	}
 
