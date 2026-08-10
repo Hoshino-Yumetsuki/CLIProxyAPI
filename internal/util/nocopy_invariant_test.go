@@ -30,7 +30,7 @@ func forEachSourceFile(t *testing.T, root string, visit func(rel string, data []
 				return filepath.SkipDir
 			}
 			switch d.Name() {
-			case "vendor", "node_modules", "testdata":
+			case ".git", ".claude", "vendor", "node_modules", "testdata":
 				return filepath.SkipDir
 			}
 			return nil
@@ -113,6 +113,7 @@ var reviewedInPlaceByteWrites = map[string]reviewedInPlaceByteWrite{
 	"internal/runtime/executor/xai_executor_request.go":             {5, "copies streamed tokens into private scanner/quote scratch buffers; no byte of any payload is rewritten"},
 	"internal/runtime/executor/helps/claude_credential_identity.go": {1, "copies key bytes into a local stack-allocated quote array for json.Unmarshal"},
 	"internal/runtime/executor/helps/claude_mcp_alias.go":           {1, "copies an HMAC sum into a local fixed-size digest array"},
+	"internal/runtime/executor/helps/xai_device_profile.go":         {1, "copies a hash into a new local fixed-size UUID array"},
 	"internal/client/codex/live/tcp_proxy.go":                       {1, "copies header and payload into a freshly allocated frame"},
 	"internal/home/client.go":                                       {1, "zeroes a secret buffer after json.Unmarshal has copied every value out"},
 	"internal/pluginstore/auth.go":                                  {1, "zeroes a locally built credential buffer after base64 encoding copied it out"},
@@ -129,9 +130,10 @@ func TestInPlaceByteWritesAreReviewed(t *testing.T) {
 	forEachSourceFile(t, root, func(rel string, data []byte) {
 		normalized := strings.ReplaceAll(string(data), "\r\n", "\n")
 		for _, line := range strings.Split(normalized, "\n") {
+			line = strings.TrimSpace(line)
 			for _, pattern := range inPlaceByteWritePatterns {
 				if pattern.MatchString(line) {
-					found[rel] = append(found[rel], strings.TrimSpace(line))
+					found[rel] = append(found[rel], line)
 				}
 			}
 		}
