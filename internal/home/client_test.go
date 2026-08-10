@@ -324,7 +324,15 @@ func TestNewLifetimePreservesClusterFailoverState(t *testing.T) {
 }
 
 func TestEnsureClientsWaitsForPreviousTargetClose(t *testing.T) {
-	client := New(config.HomeConfig{Enabled: true, Host: "next.example.com", Port: 8327})
+	client := New(config.HomeConfig{
+		Enabled: true,
+		Host:    "next.example.com",
+		Port:    8327,
+		TLS: config.HomeTLSConfig{
+			Enable:     true,
+			ClientCert: "missing-key.pem",
+		},
+	})
 	closing := make(chan struct{})
 	client.closing = closing
 	done := make(chan error, 1)
@@ -340,13 +348,17 @@ func TestEnsureClientsWaitsForPreviousTargetClose(t *testing.T) {
 	close(closing)
 	select {
 	case errEnsure := <-done:
-		if errEnsure != nil {
-			t.Fatal(errEnsure)
+		if errEnsure == nil {
+			t.Fatal("ensureClients() unexpectedly accepted incomplete TLS client credentials")
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("ensureClients() did not continue after previous target closed")
 	}
-	client.Close()
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.closing != nil {
+		t.Fatal("ensureClients() did not clear the completed close")
+	}
 }
 
 func TestConcurrencyReleaseDoesNotOpenBeforeMembershipReady(t *testing.T) {

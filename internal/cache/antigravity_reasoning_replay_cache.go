@@ -335,7 +335,7 @@ func ReplaceAntigravityReasoningReplayItemsIfUnchanged(ctx context.Context, mode
 	antigravityReasoningReplayMu.Lock()
 	defer antigravityReasoningReplayMu.Unlock()
 	entry, found := antigravityReasoningReplayEntries[key]
-	matchesSnapshot := found == snapshot.found && ((found && entry.Revision == snapshot.revision) || (!found && snapshot.evictionEpoch == antigravityReasoningReplayEvictionEpoch))
+	matchesSnapshot := found == snapshot.found && found && entry.Revision == snapshot.revision
 	isDescendant := found && !entry.Deleted && snapshot.branch != "" && entry.Branch == snapshot.branch && antigravityReasoningReplayItemsPrefix(entry.Items, normalized)
 	if !matchesSnapshot && !isDescendant {
 		return false, nil
@@ -627,13 +627,20 @@ func evictOldestAntigravityReasoningReplayEntries(count int) {
 	type candidate struct {
 		key       string
 		timestamp time.Time
+		revision  uint64
 	}
 	candidates := make([]candidate, 0, len(antigravityReasoningReplayEntries))
 	for key, entry := range antigravityReasoningReplayEntries {
-		candidates = append(candidates, candidate{key: key, timestamp: entry.Timestamp})
+		candidates = append(candidates, candidate{key: key, timestamp: entry.Timestamp, revision: entry.Revision})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].timestamp.Before(candidates[j].timestamp)
+		if !candidates[i].timestamp.Equal(candidates[j].timestamp) {
+			return candidates[i].timestamp.Before(candidates[j].timestamp)
+		}
+		if candidates[i].revision != candidates[j].revision {
+			return candidates[i].revision < candidates[j].revision
+		}
+		return candidates[i].key < candidates[j].key
 	})
 	if count > len(candidates) {
 		count = len(candidates)
