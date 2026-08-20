@@ -8,8 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
-	sdkconfig "github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
-	"github.com/tidwall/gjson"
 )
 
 func TestClaudeModelsResponseUsesConfiguredDisplayName(t *testing.T) {
@@ -47,9 +45,9 @@ func TestClaudeModelsResponseUsesConfiguredDisplayName(t *testing.T) {
 	t.Fatalf("model %q not found in response", modelID)
 }
 
-func TestClaudeModelsResponseDisablesModelListCloaking(t *testing.T) {
-	const clientID = "claude-disable-model-list-cloaking-test"
-	const modelID = "gpt-disable-model-list-cloaking-test"
+func TestClaudeModelsResponsePreservesModelID(t *testing.T) {
+	const clientID = "claude-model-id-preservation-test"
+	const modelID = "antigravity-claude-opus-4-6-dd-5-elbaf-edualc"
 	registryRef := registry.GetGlobalRegistry()
 	registryRef.RegisterClient(clientID, "claude", []*registry.ModelInfo{{
 		ID: modelID, Object: "model", OwnedBy: "test",
@@ -60,10 +58,7 @@ func TestClaudeModelsResponseDisablesModelListCloaking(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	baseHandler := &handlers.BaseAPIHandler{Cfg: &sdkconfig.SDKConfig{
-		ClaudeCode: sdkconfig.ClaudeCodeConfig{DisableCloakingModelList: true},
-	}}
-	NewClaudeCodeAPIHandler(baseHandler).ClaudeModels(ctx)
+	NewClaudeCodeAPIHandler(&handlers.BaseAPIHandler{}).ClaudeModels(ctx)
 
 	var response struct {
 		Data []struct {
@@ -78,43 +73,5 @@ func TestClaudeModelsResponseDisablesModelListCloaking(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("uncloaked model %q not found in response", modelID)
-}
-
-func TestRewriteClaudeDDModelInBody(t *testing.T) {
-	tests := []struct {
-		name      string
-		body      string
-		wantModel string
-	}{
-		{
-			name:      "encoded model is decoded",
-			body:      `{"model":"claude-fable-5-dd-o4-tpg","messages":[]}`,
-			wantModel: "gpt-4o",
-		},
-		{
-			name:      "plain claude model unchanged",
-			body:      `{"model":"claude-sonnet-4-6","messages":[]}`,
-			wantModel: "claude-sonnet-4-6",
-		},
-		{
-			name:      "encoded model with thinking suffix",
-			body:      `{"model":"claude-fable-5-dd-o4-tpg(high)","stream":true}`,
-			wantModel: "gpt-4o(high)",
-		},
-		{
-			name:      "missing model field unchanged",
-			body:      `{"messages":[]}`,
-			wantModel: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := rewriteClaudeDDModelInBody([]byte(tt.body))
-			if model := gjson.GetBytes(got, "model").String(); model != tt.wantModel {
-				t.Fatalf("model = %q, want %q; body=%s", model, tt.wantModel, string(got))
-			}
-		})
-	}
+	t.Fatalf("model %q not found unchanged in response", modelID)
 }

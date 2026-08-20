@@ -5,18 +5,18 @@ import "testing"
 func TestBuildResponse(t *testing.T) {
 	availableModels := []map[string]any{
 		{"id": "claude-z", "display_name": "Zebra", "max_tokens": 64000},
-		{"id": "gpt-4o", "display_name": "Alpha"},
+		{"id": "antigravity-claude-opus-4-6-dd-5-elbaf-edualc", "display_name": "Alpha"},
 		{"id": "claude-c", "display_name": "Alpha"},
 		{"id": "claude-b", "display_name": "Beta"},
 	}
 
-	response := BuildResponse(availableModels, false)
+	response := BuildResponse(availableModels)
 	models, ok := response["data"].([]map[string]any)
 	if !ok {
 		t.Fatalf("data type = %T, want []map[string]any", response["data"])
 	}
 
-	wantIDs := []string{"claude-c", "claude-fable-5-dd-o4-tpg", "claude-b", "claude-z"}
+	wantIDs := []string{"antigravity-claude-opus-4-6-dd-5-elbaf-edualc", "claude-c", "claude-b", "claude-z"}
 	if len(models) != len(wantIDs) {
 		t.Fatalf("len(data) = %d, want %d", len(models), len(wantIDs))
 	}
@@ -38,7 +38,7 @@ func TestBuildResponse(t *testing.T) {
 		t.Fatalf("last_id = %v, want %q", got, wantIDs[len(wantIDs)-1])
 	}
 
-	if got := availableModels[1]["id"]; got != "gpt-4o" {
+	if got := availableModels[1]["id"]; got != "antigravity-claude-opus-4-6-dd-5-elbaf-edualc" {
 		t.Fatalf("BuildResponse mutated input id to %v", got)
 	}
 	if got := availableModels[0]["id"]; got != "claude-z" {
@@ -46,32 +46,8 @@ func TestBuildResponse(t *testing.T) {
 	}
 }
 
-func TestBuildResponseWithCloakingDisabled(t *testing.T) {
-	availableModels := []map[string]any{
-		{"id": "gpt-4o", "display_name": "GPT-4o"},
-	}
-
-	response := BuildResponse(availableModels, true)
-	models, ok := response["data"].([]map[string]any)
-	if !ok {
-		t.Fatalf("data type = %T, want []map[string]any", response["data"])
-	}
-	if len(models) != 1 {
-		t.Fatalf("len(data) = %d, want 1", len(models))
-	}
-	if got := models[0]["id"]; got != "gpt-4o" {
-		t.Fatalf("data[0].id = %v, want gpt-4o", got)
-	}
-	if got := response["first_id"]; got != "gpt-4o" {
-		t.Fatalf("first_id = %v, want gpt-4o", got)
-	}
-	if got := response["last_id"]; got != "gpt-4o" {
-		t.Fatalf("last_id = %v, want gpt-4o", got)
-	}
-}
-
 func TestBuildResponseEmpty(t *testing.T) {
-	response := BuildResponse(nil, false)
+	response := BuildResponse(nil)
 	models, ok := response["data"].([]map[string]any)
 	if !ok {
 		t.Fatalf("data type = %T, want []map[string]any", response["data"])
