@@ -5,7 +5,7 @@ import "testing"
 func TestBuildResponse(t *testing.T) {
 	availableModels := []map[string]any{
 		{"id": "claude-z", "display_name": "Zebra", "max_tokens": 64000},
-		{"id": "gpt-4o", "display_name": "Alpha"},
+		{"id": "antigravity-claude-opus-4-6-dd-5-elbaf-edualc", "display_name": "Alpha"},
 		{"id": "claude-c", "display_name": "Alpha"},
 		{"id": "claude-b", "display_name": "Beta"},
 	}
@@ -43,7 +43,7 @@ func TestBuildResponse(t *testing.T) {
 		t.Fatalf("last_id = %v, want %q", got, wantIDs[len(wantIDs)-1])
 	}
 
-	if got := availableModels[1]["id"]; got != "gpt-4o" {
+	if got := availableModels[1]["id"]; got != "antigravity-claude-opus-4-6-dd-5-elbaf-edualc" {
 		t.Fatalf("BuildResponse mutated input id to %v", got)
 	}
 	if got := availableModels[0]["id"]; got != "claude-z" {

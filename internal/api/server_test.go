@@ -1971,10 +1971,10 @@ func TestModelsDispatchByAnthropicVersionHeader(t *testing.T) {
 			MaxCompletionTokens: 64000,
 		},
 		{
-			ID:      "gpt-4o",
+			ID:      "antigravity-claude-opus-4-6-dd-5-elbaf-edualc",
 			Object:  "model",
-			OwnedBy: "openai",
-			Type:    "openai",
+			OwnedBy: "antigravity",
+			Type:    "claude",
 		},
 	})
 	t.Cleanup(func() {
@@ -2059,20 +2059,17 @@ func TestModelsDispatchByAnthropicVersionHeader(t *testing.T) {
 		if resp.Object != "list" {
 			t.Fatalf("expected OpenAI format (object=list), got %s", rr.Body.String())
 		}
-		foundRawGPT := false
+		foundRawAntigravity := false
 		for _, m := range resp.Data {
 			if _, ok := m["max_input_tokens"]; ok {
 				t.Fatalf("did not expect max_input_tokens in OpenAI format, got %v", m)
 			}
-			if id, _ := m["id"].(string); id == "gpt-4o" {
-				foundRawGPT = true
-			}
-			if id, _ := m["id"].(string); id == "claude-gpt-4o" || id == "claude-fable-5-dd-o4-tpg" {
-				t.Fatalf("did not expect Anthropic id rewrite on OpenAI format models, got %v", m)
+			if id, _ := m["id"].(string); id == "antigravity-claude-opus-4-6-dd-5-elbaf-edualc" {
+				foundRawAntigravity = true
 			}
 		}
-		if !foundRawGPT {
-			t.Fatalf("expected raw gpt-4o in OpenAI format response, got %s", rr.Body.String())
+		if !foundRawAntigravity {
+			t.Fatalf("expected raw Antigravity model ID in OpenAI format response, got %s", rr.Body.String())
 		}
 	})
 }
