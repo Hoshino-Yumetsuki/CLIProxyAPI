@@ -56,6 +56,7 @@ func TestClaudeModelsKeepsRawModelIDs(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	NewClaudeCodeAPIHandler(&handlers.BaseAPIHandler{}).ClaudeModels(ctx)
+
 	var response struct {
 		Data []struct {
 			ID string `json:"id"`

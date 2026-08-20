@@ -93,9 +93,6 @@ type SDKConfig struct {
 	// CodexOrphanDelegationCompatibility mirrors the provider-wide runtime setting for API handlers.
 	CodexOrphanDelegationCompatibility bool `yaml:"-" json:"-"`
 
-	// ClaudeCode configures Claude Code compatibility behavior.
-	ClaudeCode ClaudeCodeConfig `yaml:"claude-code" json:"claude-code"`
-
 	// APIKeys is a list of keys for authenticating clients to this proxy server.
 	APIKeys []string `yaml:"api-keys" json:"api-keys"`
 
