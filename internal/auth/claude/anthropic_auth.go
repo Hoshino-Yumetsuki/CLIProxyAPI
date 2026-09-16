@@ -120,8 +120,7 @@ func parseClaudeRetryAfter(resp *http.Response) time.Duration {
 }
 
 func isClaudeRefreshRetryable(err error) bool {
-	var httpErr *refreshHTTPError
-	if errors.As(err, &httpErr) {
+	if httpErr, ok := errors.AsType[*refreshHTTPError](err); ok {
 		return httpErr.Retryable()
 	}
 	// A transport or response-decoding error is ambiguous: Anthropic may have
