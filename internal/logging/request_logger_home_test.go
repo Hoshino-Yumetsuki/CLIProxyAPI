@@ -460,3 +460,43 @@ func TestHomeStreamingLogWriter_CloseTerminatesWhenClientUnhealthy(t *testing.T)
 		t.Fatalf("homeStreamingLogWriter leaked writer goroutine after Close with unhealthy client")
 	}
 }
+
+func TestHomeRequestLogPreservesArbitraryBytesAndNullHeaders(t *testing.T) {
+	original := currentHomeRequestLogClient
+	t.Cleanup(func() { currentHomeRequestLogClient = original })
+	stub := &stubHomeRequestLogClient{heartbeatOK: true}
+	currentHomeRequestLogClient = func() homeRequestLogClient { return stub }
+	logger := NewFileRequestLogger(true, t.TempDir(), "", 0)
+	logger.SetHomeEnabled(true)
+	headers := map[string][]string{
+		"X-Unset": nil,
+		"X-Empty": {},
+		"X-\xff":  {"first"},
+		"X-\xfe":  {"second"},
+	}
+	if err := logger.forwardRequestLogToHome(t.Context(), headers, "req-1", "<body>&\xff\u2028"); err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.pushed) != 1 {
+		t.Fatalf("forwarded records = %d, want 1", len(stub.pushed))
+	}
+	var payload homeRequestLogPayload
+	if err := json.Unmarshal(stub.pushed[0], &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.RequestLog != "<body>&\ufffd\u2028" {
+		t.Fatalf("request log = %q", payload.RequestLog)
+	}
+	if value, ok := payload.Headers["X-Unset"]; !ok || value != nil {
+		t.Fatalf("unset header = %#v, present = %v", value, ok)
+	}
+	if value, ok := payload.Headers["X-Empty"]; !ok || value == nil || len(value) != 0 {
+		t.Fatalf("empty header = %#v, present = %v", value, ok)
+	}
+	if got := payload.Headers["X-\ufffd"]; len(got) != 1 || got[0] != "first" {
+		t.Fatalf("replacement-colliding header = %#v", got)
+	}
+	if bytes.ContainsAny(stub.pushed[0], "<>&\u2028") {
+		t.Fatalf("forwarded JSON contains unescaped HTML/JS characters: %q", stub.pushed[0])
+	}
+}
