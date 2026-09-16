@@ -13,7 +13,11 @@ import (
 
 // Keep in sync with xai-org/grok-build (xai-grok-version + grok-shell identity).
 const (
-	defaultXAIClientVersion    = "0.2.111"
+	// defaultXAIClientVersion is the version reported on chat-proxy model turns
+	// through x-grok-client-version and the User-Agent. It tracks the version
+	// chat-proxy gates on, which runs ahead of the OAuth login version in
+	// internal/auth/xai (ClientVersion); the two are independent.
+	defaultXAIClientVersion    = "0.2.120"
 	defaultXAIClientIdentifier = "grok-shell"
 	defaultXAIClientMode       = "headless"
 	defaultXAITokenAuthValue   = "xai-grok-cli"
@@ -293,12 +297,10 @@ func ApplyXAIGrokBuildIdentityHeaders(r *http.Request, auth *cliproxyauth.Auth, 
 	if r == nil {
 		return
 	}
-	// Prefer credential-stored profile; ensure in-memory if missing so headers are complete.
-	// Persistence of newly generated profiles happens via EnsureXAIDeviceProfileInAuth
-	// at auth load/register and RequestAuthPreparer.
-	if XAIDeviceProfileMissing(auth) {
-		_, _ = EnsureXAIDeviceProfileInAuth(auth)
-	}
+	// ResolveXAIDeviceProfile synthesizes a stable per-auth profile when the
+	// credential carries none, so this stays a pure read. It must not write
+	// auth.Metadata from the request path: concurrent requests share one auth
+	// value and would race on that map. Credentials persist a profile at login.
 	profile := ResolveXAIDeviceProfile(auth)
 	r.Header.Set("X-XAI-Token-Auth", defaultXAITokenAuthValue)
 	r.Header.Set("x-grok-client-version", profile.ClientVersion)
