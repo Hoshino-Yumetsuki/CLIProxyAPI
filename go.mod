@@ -1,6 +1,6 @@
 module github.com/router-for-me/CLIProxyAPI/v8
 
-go 1.26.10
+go 1.27.0
 
 require (
 	github.com/MoeForge/moego v0.1.0-alpha.1
@@ -20,6 +20,7 @@ require (
 	github.com/libp2p/zeroconf/v2 v2.2.0
 	github.com/miekg/dns v1.1.43
 	github.com/minio/minio-go/v7 v7.0.66
+	github.com/pierrec/xxHash v0.1.5
 	github.com/pion/ice/v4 v4.3.0
 	github.com/pion/interceptor v0.1.45
 	github.com/pion/rtp v1.10.4
@@ -70,6 +71,7 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
 	github.com/charmbracelet/x/ansi v0.11.6 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
@@ -80,6 +82,7 @@ require (
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
@@ -102,6 +105,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
+	github.com/miekg/dns v1.1.43 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -113,12 +117,15 @@ require (
 	github.com/pierrec/xxHash v0.1.5
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/rs/xid v1.5.0 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	google.golang.org/protobuf v1.34.1
+	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
