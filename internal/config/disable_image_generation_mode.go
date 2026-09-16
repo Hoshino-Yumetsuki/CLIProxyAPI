@@ -2,7 +2,8 @@ package config
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -115,7 +116,7 @@ func parseDisableImageGenerationJSON(data []byte) (DisableImageGenerationMode, e
 
 	// bool
 	var b bool
-	if err := json.Unmarshal(trimmed, &b); err == nil {
+	if err := json.Unmarshal(trimmed, &b, jsontext.AllowInvalidUTF8(true)); err == nil {
 		if b {
 			return DisableImageGenerationAll, nil
 		}
@@ -124,7 +125,7 @@ func parseDisableImageGenerationJSON(data []byte) (DisableImageGenerationMode, e
 
 	// string
 	var s string
-	if err := json.Unmarshal(trimmed, &s); err != nil {
+	if err := json.Unmarshal(trimmed, &s, jsontext.AllowInvalidUTF8(true)); err != nil {
 		return DisableImageGenerationOff, fmt.Errorf("invalid disable-image-generation value")
 	}
 	return parseDisableImageGenerationString(s)
