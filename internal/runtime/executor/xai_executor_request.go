@@ -123,6 +123,7 @@ func (e *XAIExecutor) prepareResponsesRequestTo(ctx context.Context, req cliprox
 	body = normalizeXAIInputReasoningItems(body)
 	body = sanitizeXAIInputEncryptedContent(body)
 	body = normalizeCodexInstructions(body)
+	body = normalizeXAIInstructions(body)
 	body = sanitizeXAIResponsesBody(body, baseModel)
 	body = normalizeXAIImageRefs(body)
 
@@ -319,21 +320,24 @@ func applyXAICustomHeaders(r *http.Request, auth *cliproxyauth.Auth, clientHeade
 
 // applyXAIChatHeaders applies standard xAI headers for non-image/video chat
 // requests. When using_api is true, this matches the standard
-// applyXAIHeaders behavior. CLI chat-proxy identity headers are only attached
+// applyXAIHeaders behavior. Grok Build client identity headers are only attached
 // when using_api is false and the resolved chat base URL is the official CLI
 // chat-proxy endpoint.
-func applyXAIChatHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID string, clientHeaders ...http.Header) {
+func applyXAIChatHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID, model string, clientHeaders ...http.Header) {
 	if xaiUsingAPI(auth) {
 		applyXAIHeaders(r, auth, token, stream, sessionID, clientHeaders...)
 		return
 	}
 	applyXAIDefaultHeaders(r, token, stream, sessionID)
 	if xaiIsCLIChatProxyBaseURL(xaiChatBaseURL(auth)) {
-		r.Header.Set(xaiTokenAuthHeader, xaiTokenAuthValue)
-		r.Header.Set(xaiClientVersionHeader, xaiClientVersionValue)
-		r.Header.Set("User-Agent", "xai-grok-workspace/"+xaiClientVersionValue)
-		r.Header.Set(xaiClientIdentifierHeader, xaiClientIdentifierValue)
-		r.Header.Set(xaiAuthenticateResponseHeader, xaiAuthenticateResponseValue)
+		// Delegate to the Grok Build identity helper so the wire shape stays in
+		// lockstep with xai-org/grok-build: the coding-agent User-Agent
+		// ("grok-shell/<ver> (os; arch)") plus the per-turn agent, session,
+		// request and model identity headers chat-proxy expects from an agent
+		// turn. Hand-rolling a subset here previously sent the legacy
+		// workspace User-Agent and omitted every agent header, so chat-proxy
+		// could not classify the caller as a coding agent.
+		helps.ApplyXAIGrokBuildIdentityHeaders(r, auth, model, sessionID)
 	}
 	applyXAICustomHeaders(r, auth, clientHeaders...)
 }
@@ -623,6 +627,89 @@ func xaiCompareGrokVersion(a, b xaiGrokVersion) int {
 		return 1
 	}
 	return 0
+}
+
+// normalizeXAIInstructions hoists caller system/developer directives into the
+// top-level `instructions` field and removes them from `input`.
+//
+// xai-org/grok-build builds the same payload this way
+// (crates/codegen/xai-grok-sampling-types/src/conversation/responses.rs): the
+// system prompt becomes `instructions`, and a `developer`-role input message is
+// not part of its wire shape at all. The Responses API treats an empty
+// `instructions` string as "this request has no system prompt", so leaving the
+// caller's agent directives buried in `input` costs the model its agent
+// framing and it answers from its default consumer persona.
+func normalizeXAIInstructions(body []byte) []byte {
+	if !gjson.ValidBytes(body) {
+		return body
+	}
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return body
+	}
+
+	directives := make([]string, 0, 2)
+	kept := make([][]byte, 0, len(input.Array()))
+	for _, item := range input.Array() {
+		if !xaiIsSystemDirectiveItem(item) {
+			kept = append(kept, []byte(item.Raw))
+			continue
+		}
+		if text := xaiInputItemText(item); strings.TrimSpace(text) != "" {
+			directives = append(directives, text)
+		}
+	}
+
+	if len(directives) == 0 {
+		// Nothing to hoist. Drop an empty `instructions` string so the field is
+		// omitted, matching the Grok Build client's payload.
+		if instructions := gjson.GetBytes(body, "instructions"); instructions.Type == gjson.String && strings.TrimSpace(instructions.String()) == "" {
+			body, _ = sjson.DeleteBytes(body, "instructions")
+		}
+		return body
+	}
+
+	if existing := strings.TrimSpace(gjson.GetBytes(body, "instructions").String()); existing != "" {
+		directives = append([]string{existing}, directives...)
+	}
+	body, _ = sjson.SetBytes(body, "instructions", strings.Join(directives, "\n\n"))
+	body, _ = sjson.SetRawBytes(body, "input", helps.JoinRawJSONArray(kept))
+	return body
+}
+
+// xaiIsSystemDirectiveItem reports whether an input item carries system-level
+// caller directives rather than conversation content.
+func xaiIsSystemDirectiveItem(item gjson.Result) bool {
+	if strings.TrimSpace(item.Get("type").String()) != "message" {
+		return false
+	}
+	switch strings.TrimSpace(item.Get("role").String()) {
+	case "system", "developer":
+		return true
+	default:
+		return false
+	}
+}
+
+// xaiInputItemText extracts plain text from a Responses input message item.
+func xaiInputItemText(item gjson.Result) string {
+	content := item.Get("content")
+	if content.Type == gjson.String {
+		return content.String()
+	}
+	if !content.IsArray() {
+		return ""
+	}
+	parts := make([]string, 0, len(content.Array()))
+	for _, part := range content.Array() {
+		switch part.Get("type").String() {
+		case "input_text", "output_text", "text":
+			if text := part.Get("text").String(); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func sanitizeXAIResponsesBody(body []byte, model string) []byte {
