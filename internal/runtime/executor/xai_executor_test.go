@@ -6201,6 +6201,27 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("identity headers do not mutate auth metadata", func(t *testing.T) {
+		auth := &cliproxyauth.Auth{
+			ID: "xai-account-metadata",
+			Attributes: map[string]string{
+				"auth_kind": "oauth",
+				"base_url":  xaiauth.CLIChatProxyBaseURL,
+			},
+		}
+		req := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
+		applyXAIChatHeaders(req, auth, "xai-token", true, "conv-id", "grok-4.6")
+
+		if req.Header.Get("x-grok-agent-id") == "" {
+			t.Fatal("expected a synthesized agent id even without a stored device profile")
+		}
+		// Requests share one auth value across goroutines; the header path must
+		// not write auth.Metadata or concurrent turns race on the map.
+		if _, ok := auth.Metadata[helps.XAIDeviceProfileMetadataKey]; ok {
+			t.Fatal("request path must not write device_profile into auth metadata")
+		}
+	})
 }
 
 func TestXAIExecutorExecuteChatUsesProxyHeadersOnlyForChatProxy(t *testing.T) {

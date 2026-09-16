@@ -297,12 +297,11 @@ func ApplyXAIGrokBuildIdentityHeaders(r *http.Request, auth *cliproxyauth.Auth, 
 	if r == nil {
 		return
 	}
-	// Prefer credential-stored profile; ensure in-memory if missing so headers are complete.
-	// Persistence of newly generated profiles happens via EnsureXAIDeviceProfileInAuth
-	// at auth load/register and RequestAuthPreparer.
-	if XAIDeviceProfileMissing(auth) {
-		_, _ = EnsureXAIDeviceProfileInAuth(auth)
-	}
+	// ResolveXAIDeviceProfile synthesizes a stable per-auth profile when the
+	// credential has none, so this stays a pure read: it must not write
+	// auth.Metadata from the request path, where concurrent requests share the
+	// same auth and would race on the map. Credentials persist a profile at
+	// login (sdk/auth/xai.go).
 	profile := ResolveXAIDeviceProfile(auth)
 	r.Header.Set("X-XAI-Token-Auth", defaultXAITokenAuthValue)
 	r.Header.Set("x-grok-client-version", profile.ClientVersion)
