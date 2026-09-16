@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/MoeForge/moego/json"
 	"github.com/google/uuid"

@@ -8,8 +8,8 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
@@ -305,7 +305,7 @@ func (r *pionMediaRelay) NewSession(ctx context.Context, clientOffer string, rou
 		downstream:     downstream,
 		upstream:       upstream,
 		done:           make(chan struct{}),
-		mediaSessionID: uuid.NewString(),
+		mediaSessionID: uuid.New().String(),
 		releaseSlot:    releaseSlot,
 		proxyDialer:    proxyDialer,
 		proxyScheme:    proxyScheme(route.proxyURL),

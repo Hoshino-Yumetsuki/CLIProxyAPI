@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
