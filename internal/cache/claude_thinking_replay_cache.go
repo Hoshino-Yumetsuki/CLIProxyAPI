@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	homekv "github.com/router-for-me/CLIProxyAPI/v7/internal/home"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
@@ -77,7 +77,7 @@ func CacheClaudeThinkingReplayBestEffort(ctx context.Context, modelFamily, sessi
 		ctx = context.Background()
 	}
 	contents := [][]byte{append([]byte(nil), content...)}
-	generation := uuid.NewString()
+	generation := uuid.New().String()
 	if client, homeMode, errClient := currentClaudeThinkingReplayKVClient(); homeMode {
 		if errClient != nil {
 			log.Errorf("home kv best-effort Claude thinking replay set failed: %v", errClient)
@@ -186,7 +186,7 @@ func ReplaceClaudeThinkingReplayIfUnchanged(ctx context.Context, modelFamily, se
 			contents = nil
 		}
 		contents = appendClaudeThinkingReplayContent(contents, content)
-		generation := uuid.NewString()
+		generation := uuid.New().String()
 		raw, errMarshal := marshalClaudeThinkingReplayHomeValue(generation, false, contents)
 		if errMarshal != nil {
 			return false, errMarshal
@@ -206,7 +206,7 @@ func ReplaceClaudeThinkingReplayIfUnchanged(ctx context.Context, modelFamily, se
 	claudeThinkingReplayEntries[key] = claudeThinkingReplayEntry{
 		Contents:   contents,
 		Timestamp:  time.Now(),
-		Generation: uuid.NewString(),
+		Generation: uuid.New().String(),
 	}
 	enforceClaudeThinkingReplayLimitsLocked()
 	return true, nil
@@ -224,7 +224,7 @@ func DeleteClaudeThinkingReplayIfUnchanged(ctx context.Context, modelFamily, ses
 	if !snapshot.loaded {
 		return true, DeleteClaudeThinkingReplayRequired(ctx, modelFamily, sessionKey)
 	}
-	generation := uuid.NewString()
+	generation := uuid.New().String()
 	client, homeMode, errClient := currentClaudeThinkingReplayKVClient()
 	if homeMode {
 		if errClient != nil {
@@ -294,7 +294,7 @@ func readOrReserveClaudeThinkingReplayHomeValue(ctx context.Context, client kimi
 			}
 			return raw, nil
 		}
-		tombstone, errMarshal := marshalClaudeThinkingReplayHomeValue(uuid.NewString(), true, nil)
+		tombstone, errMarshal := marshalClaudeThinkingReplayHomeValue(uuid.New().String(), true, nil)
 		if errMarshal != nil {
 			return nil, errMarshal
 		}
@@ -345,7 +345,7 @@ func decodeClaudeThinkingReplayHomeValue(raw []byte) ([][]byte, string, bool, bo
 }
 
 func reserveClaudeThinkingReplayLocalLocked(key string, now time.Time) claudeThinkingReplayEntry {
-	entry := claudeThinkingReplayEntry{Timestamp: now, Generation: uuid.NewString(), Deleted: true}
+	entry := claudeThinkingReplayEntry{Timestamp: now, Generation: uuid.New().String(), Deleted: true}
 	claudeThinkingReplayEntries[key] = entry
 	enforceClaudeThinkingReplayLimitsLocked()
 	return entry
