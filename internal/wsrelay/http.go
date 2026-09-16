@@ -7,8 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // HTTPRequest represents a proxied HTTP request delivered to websocket clients.
@@ -40,7 +39,7 @@ func (m *Manager) NonStream(ctx context.Context, provider string, req *HTTPReque
 	if req == nil {
 		return nil, fmt.Errorf("wsrelay: request is nil")
 	}
-	msg := Message{ID: uuid.NewString(), Type: MessageTypeHTTPReq, Payload: encodeRequest(req)}
+	msg := Message{ID: uuid.New().String(), Type: MessageTypeHTTPReq, Payload: encodeRequest(req)}
 	respCh, err := m.Send(ctx, provider, msg)
 	if err != nil {
 		return nil, err
@@ -116,7 +115,7 @@ func (m *Manager) Stream(ctx context.Context, provider string, req *HTTPRequest)
 	if req == nil {
 		return nil, fmt.Errorf("wsrelay: request is nil")
 	}
-	msg := Message{ID: uuid.NewString(), Type: MessageTypeHTTPReq, Payload: encodeRequest(req)}
+	msg := Message{ID: uuid.New().String(), Type: MessageTypeHTTPReq, Payload: encodeRequest(req)}
 	respCh, err := m.Send(ctx, provider, msg)
 	if err != nil {
 		return nil, err
