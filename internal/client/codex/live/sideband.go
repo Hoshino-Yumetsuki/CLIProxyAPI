@@ -670,8 +670,7 @@ func copyWebsocket(destination, source *websocket.Conn) error {
 }
 
 func websocketCloseDetails(err error) (int, string) {
-	var closeErr *websocket.CloseError
-	if errors.As(err, &closeErr) {
+	if closeErr, ok := errors.AsType[*websocket.CloseError](err); ok {
 		switch closeErr.Code {
 		case websocket.CloseNoStatusReceived, websocket.CloseAbnormalClosure, websocket.CloseTLSHandshake:
 			return websocket.CloseNormalClosure, ""
