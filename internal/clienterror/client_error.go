@@ -42,10 +42,10 @@ func HTTPStatusFromError(err error) int {
 		return 0
 	}
 	type statusCoder interface {
+		error
 		StatusCode() int
 	}
-	var sc statusCoder
-	if errors.As(err, &sc) && sc != nil {
+	if sc, ok := errors.AsType[statusCoder](err); ok && sc != nil {
 		if code := sc.StatusCode(); code > 0 {
 			return code
 		}
@@ -73,10 +73,10 @@ func HTTPStatusFromErrorOr(err error, fallback int) int {
 func IsRequestFault(status int, err error) bool {
 	if status <= 0 && err != nil {
 		type statusCoder interface {
+			error
 			StatusCode() int
 		}
-		var statusErr statusCoder
-		if errors.As(err, &statusErr) && statusErr != nil {
+		if statusErr, ok := errors.AsType[statusCoder](err); ok && statusErr != nil {
 			status = statusErr.StatusCode()
 		}
 	}
@@ -196,10 +196,10 @@ func IsClientCancellation(status int, err error) bool {
 			return true
 		}
 		type statusCoder interface {
+			error
 			StatusCode() int
 		}
-		var sc statusCoder
-		if errors.As(err, &sc) && sc != nil && sc.StatusCode() == StatusClientClosedRequest {
+		if sc, ok := errors.AsType[statusCoder](err); ok && sc != nil && sc.StatusCode() == StatusClientClosedRequest {
 			return true
 		}
 		lower := strings.ToLower(err.Error())
