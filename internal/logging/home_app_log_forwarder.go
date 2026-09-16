@@ -2,13 +2,14 @@ package logging
 
 import (
 	"context"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/MoeForge/moego/json"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	log "github.com/sirupsen/logrus"
 )
@@ -252,7 +253,8 @@ func (f *HomeAppLogForwarder) forward(payload homeAppLogPayload) {
 	if !client.HeartbeatOK() {
 		return
 	}
-	raw, errMarshal := json.Marshal(&payload)
+	// Logs may contain arbitrary upstream bytes; keep forwarding them with UTF-8 replacement.
+	raw, errMarshal := json.Marshal(&payload, jsontext.AllowInvalidUTF8(true), jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if errMarshal != nil {
 		return
 	}

@@ -3,10 +3,11 @@ package logging
 import (
 	"bytes"
 	"context"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
-	"github.com/MoeForge/moego/json"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 )
@@ -62,7 +63,8 @@ func (l *FileRequestLogger) forwardRequestLogToHome(ctx context.Context, headers
 		RequestID:  strings.TrimSpace(requestID),
 		RequestLog: logText,
 	}
-	raw, errMarshal := json.Marshal(&payload)
+	// Preserve v1 wire encoding, including header names that collide after UTF-8 replacement.
+	raw, errMarshal := json.Marshal(&payload, json.FormatNilSliceAsNull(true), json.Deterministic(true), jsontext.AllowInvalidUTF8(true), jsontext.AllowDuplicateNames(true), jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if errMarshal != nil {
 		return errMarshal
 	}
@@ -251,7 +253,7 @@ func (w *homeStreamingLogWriter) Close() error {
 		RequestID:  w.requestID,
 		RequestLog: buf.String(),
 	}
-	raw, errMarshal := json.Marshal(&payload)
+	raw, errMarshal := json.Marshal(&payload, json.FormatNilSliceAsNull(true), json.Deterministic(true), jsontext.AllowInvalidUTF8(true), jsontext.AllowDuplicateNames(true), jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if errMarshal != nil {
 		return errMarshal
 	}
