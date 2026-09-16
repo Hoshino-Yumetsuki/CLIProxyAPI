@@ -316,8 +316,7 @@ func pluginStoreRequestError(requestURL string, err error) error {
 		parsed.Fragment = ""
 		safeURL = parsed.String()
 	}
-	var urlError *url.Error
-	if errors.As(err, &urlError) && urlError.Err != nil {
+	if urlError, ok := errors.AsType[*url.Error](err); ok && urlError.Err != nil {
 		err = urlError.Err
 	}
 	return fmt.Errorf("request %s failed: %w", safeURL, err)

@@ -262,8 +262,8 @@ func WithXAIBuiltins(models []*ModelInfo) []*ModelInfo {
 
 func normalizeAntigravityCapabilityModelID(modelID string) string {
 	modelID = strings.ToLower(strings.TrimSpace(modelID))
-	if open := strings.LastIndex(modelID, "("); open >= 0 && strings.HasSuffix(modelID, ")") {
-		modelID = strings.TrimSpace(modelID[:open])
+	if modelName, rest, found := strings.CutLast(modelID, "("); found && strings.HasSuffix(rest, ")") {
+		modelID = strings.TrimSpace(modelName)
 	}
 	return modelID
 }

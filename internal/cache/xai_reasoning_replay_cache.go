@@ -2,7 +2,8 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -101,7 +102,7 @@ func StoreXAIReasoningReplayItems(ctx context.Context, modelName, sessionKey str
 			log.Errorf("home kv best-effort xai reasoning replay set failed prefix=cpa:xai:*: %v", errClient)
 			return XAIReasoningReplayStoreBackendError
 		}
-		raw, errMarshal := json.Marshal(normalized)
+		raw, errMarshal := json.Marshal(normalized, json.FormatNilSliceAsNull(true))
 		if errMarshal != nil {
 			log.Errorf("home kv best-effort xai reasoning replay set failed prefix=cpa:xai:*: %v", errMarshal)
 			return XAIReasoningReplayStoreBackendError
@@ -165,7 +166,8 @@ func GetXAIReasoningReplayItemsRequired(ctx context.Context, modelName, sessionK
 			return nil, false, errGet
 		}
 		var homeItems [][]byte
-		if errUnmarshal := json.Unmarshal(raw, &homeItems); errUnmarshal != nil {
+		// Keep accepting legacy byte arrays and base64 strings containing newlines.
+		if errUnmarshal := jsonv1.Unmarshal(raw, &homeItems); errUnmarshal != nil {
 			return nil, false, errUnmarshal
 		}
 		if _, errExpire := client.KVExpire(ctx, xaiReasoningReplayKVKey(modelName, sessionKey), XAIReasoningReplayCacheTTL); errExpire != nil {
