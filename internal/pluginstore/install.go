@@ -491,9 +491,7 @@ func pluginFileInfoFromPath(filePath string, requiredExtension string) (pluginFi
 	name := base[:len(base)-len(extension)]
 	id := name
 	version := ""
-	if versionIndex := strings.LastIndex(name, "-v"); versionIndex > 0 {
-		candidateID := name[:versionIndex]
-		candidateVersion := name[versionIndex+2:]
+	if candidateID, candidateVersion, found := strings.CutLast(name, "-v"); found && candidateID != "" {
 		if validPluginID(candidateID) && validPluginVersion(candidateVersion) {
 			id = candidateID
 			version = candidateVersion
