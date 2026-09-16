@@ -2,7 +2,8 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -88,7 +89,7 @@ func CacheCodexReasoningReplayItemsBestEffort(ctx context.Context, modelName, se
 			log.Errorf("home kv best-effort codex reasoning replay set failed prefix=cpa:codex:*: %v", errClient)
 			return false
 		}
-		raw, errMarshal := json.Marshal(normalized)
+		raw, errMarshal := json.Marshal(normalized, json.FormatNilSliceAsNull(true))
 		if errMarshal != nil {
 			log.Errorf("home kv best-effort codex reasoning replay set failed prefix=cpa:codex:*: %v", errMarshal)
 			return false
@@ -146,13 +147,14 @@ func AppendCodexReasoningReplayItemsBestEffort(ctx context.Context, modelName, s
 			}
 			var existing [][]byte
 			if found {
-				if errUnmarshal := json.Unmarshal(existingRaw, &existing); errUnmarshal != nil {
+				// Keep accepting legacy byte arrays and base64 strings containing newlines.
+				if errUnmarshal := jsonv1.Unmarshal(existingRaw, &existing); errUnmarshal != nil {
 					log.Errorf("home kv best-effort codex reasoning replay append failed prefix=cpa:codex:*: %v", errUnmarshal)
 					return false
 				}
 			}
 			combined := appendCodexReasoningReplayTurn(existing, normalized)
-			raw, errMarshal := json.Marshal(combined)
+			raw, errMarshal := json.Marshal(combined, json.FormatNilSliceAsNull(true))
 			if errMarshal != nil {
 				log.Errorf("home kv best-effort codex reasoning replay append failed prefix=cpa:codex:*: %v", errMarshal)
 				return false
@@ -268,7 +270,8 @@ func GetCodexReasoningReplayItemsRequired(ctx context.Context, modelName, sessio
 			return nil, false, errGet
 		}
 		var homeItems [][]byte
-		if errUnmarshal := json.Unmarshal(raw, &homeItems); errUnmarshal != nil {
+		// Keep accepting legacy byte arrays and base64 strings containing newlines.
+		if errUnmarshal := jsonv1.Unmarshal(raw, &homeItems); errUnmarshal != nil {
 			return nil, false, errUnmarshal
 		}
 		if _, errExpire := client.KVExpire(ctx, codexReasoningReplayKVKey(modelName, sessionKey), CodexReasoningReplayCacheTTL); errExpire != nil {
