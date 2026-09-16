@@ -13,7 +13,11 @@ import (
 
 // Keep in sync with xai-org/grok-build (xai-grok-version + grok-shell identity).
 const (
-	defaultXAIClientVersion    = "0.2.111"
+	// defaultXAIClientVersion is the version sent on chat-proxy model turns via
+	// x-grok-client-version and the User-Agent. It tracks the version chat-proxy
+	// gates on, which runs ahead of the OAuth login version in internal/auth/xai
+	// (ClientVersion); the two are independent.
+	defaultXAIClientVersion    = "0.2.120"
 	defaultXAIClientIdentifier = "grok-shell"
 	defaultXAIClientMode       = "headless"
 	defaultXAITokenAuthValue   = "xai-grok-cli"

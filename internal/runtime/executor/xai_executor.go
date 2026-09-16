@@ -44,15 +44,6 @@ const (
 	xaiVideosPath               = "/videos"
 	xaiIdempotencyKeyMetaKey    = "idempotency_key"
 	xaiComposerModelPrefix      = "grok-composer-"
-	xaiTokenAuthHeader          = "X-XAI-Token-Auth"
-	xaiTokenAuthValue           = "xai-grok-cli"
-	xaiClientVersionHeader      = "x-grok-client-version"
-	// Keep in sync with the current Grok CLI client version that chat-proxy expects.
-	xaiClientVersionValue         = "0.2.120"
-	xaiClientIdentifierHeader     = "x-grok-client-identifier"
-	xaiClientIdentifierValue      = "grok-shell"
-	xaiAuthenticateResponseHeader = "x-authenticateresponse"
-	xaiAuthenticateResponseValue  = "authenticate-response"
 	// xaiUsingAPIAttr enables the official API path for HTTP chat and media.
 	xaiUsingAPIAttr = "using_api"
 )
