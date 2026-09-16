@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
@@ -87,7 +88,7 @@ func CacheKimiThinkingReplayBestEffort(ctx context.Context, modelFamily, session
 		ctx = context.Background()
 	}
 	cloned := append([]byte(nil), content...)
-	generation := uuid.NewString()
+	generation := uuid.New().String()
 	if client, homeMode, errClient := currentKimiThinkingReplayKVClient(); homeMode {
 		if errClient != nil {
 			log.Errorf("home kv best-effort kimi thinking replay set failed prefix=cpa:kimi:*: %v", errClient)
@@ -184,7 +185,7 @@ func ReplaceKimiThinkingReplayIfUnchanged(ctx context.Context, modelFamily, sess
 		return CacheKimiThinkingReplayBestEffort(ctx, modelFamily, sessionKey, content), nil
 	}
 	cloned := append([]byte(nil), content...)
-	generation := uuid.NewString()
+	generation := uuid.New().String()
 	client, homeMode, errClient := currentKimiThinkingReplayKVClient()
 	if homeMode {
 		if errClient != nil {
@@ -223,7 +224,7 @@ func DeleteKimiThinkingReplayIfUnchanged(ctx context.Context, modelFamily, sessi
 	if !snapshot.loaded {
 		return true, DeleteKimiThinkingReplayRequired(ctx, modelFamily, sessionKey)
 	}
-	generation := uuid.NewString()
+	generation := uuid.New().String()
 	client, homeMode, errClient := currentKimiThinkingReplayKVClient()
 	if homeMode {
 		if errClient != nil {
@@ -293,7 +294,7 @@ func readOrReserveKimiThinkingReplayHomeValue(ctx context.Context, client kimiTh
 			}
 			return raw, nil
 		}
-		tombstone, errMarshal := marshalKimiThinkingReplayHomeValue(uuid.NewString(), true, nil)
+		tombstone, errMarshal := marshalKimiThinkingReplayHomeValue(uuid.New().String(), true, nil)
 		if errMarshal != nil {
 			return nil, errMarshal
 		}
@@ -341,7 +342,7 @@ func decodeKimiThinkingReplayHomeValue(raw []byte) ([]byte, string, bool, bool) 
 }
 
 func reserveKimiThinkingReplayLocalLocked(key string, now time.Time) kimiThinkingReplayEntry {
-	entry := kimiThinkingReplayEntry{Timestamp: now, Generation: uuid.NewString(), Deleted: true}
+	entry := kimiThinkingReplayEntry{Timestamp: now, Generation: uuid.New().String(), Deleted: true}
 	kimiThinkingReplayEntries[key] = entry
 	enforceKimiThinkingReplayLimitsLocked()
 	return entry

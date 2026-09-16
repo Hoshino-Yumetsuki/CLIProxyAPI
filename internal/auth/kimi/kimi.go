@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/buildinfo"
