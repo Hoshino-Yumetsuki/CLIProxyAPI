@@ -21,25 +21,15 @@ import (
 // the suffix content. Use ParseNumericSuffix, ParseLevelSuffix, etc. for
 // content interpretation.
 func ParseSuffix(model string) SuffixResult {
-	// Find the last opening parenthesis
-	lastOpen := strings.LastIndex(model, "(")
-	if lastOpen == -1 {
+	modelName, rest, found := strings.CutLast(model, "(")
+	if !found || !strings.HasSuffix(rest, ")") {
 		return SuffixResult{ModelName: model, HasSuffix: false}
 	}
-
-	// Check if the string ends with a closing parenthesis
-	if !strings.HasSuffix(model, ")") {
-		return SuffixResult{ModelName: model, HasSuffix: false}
-	}
-
-	// Extract components
-	modelName := model[:lastOpen]
-	rawSuffix := model[lastOpen+1 : len(model)-1]
 
 	return SuffixResult{
 		ModelName: modelName,
 		HasSuffix: true,
-		RawSuffix: rawSuffix,
+		RawSuffix: rest[:len(rest)-1],
 	}
 }
 
