@@ -11,7 +11,7 @@ import (
 	"time"
 	"uuid"
 
-	homekv "github.com/router-for-me/CLIProxyAPI/v7/internal/home"
+	homekv "github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )

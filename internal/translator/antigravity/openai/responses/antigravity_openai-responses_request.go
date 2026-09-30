@@ -1,15 +1,17 @@
 package responses
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
-	sigcompat "github.com/router-for-me/CLIProxyAPI/v7/internal/signature"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
-	. "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/antigravity/gemini"
-	translatorcommon "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/common"
-	. "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/openai/responses"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	sigcompat "github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
+	. "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/gemini"
+	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
+	. "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -17,18 +19,35 @@ import (
 
 const antigravityWebSearchSystemInstruction = "You are a search engine bot. You will be given a query from a user. Your task is to search the web for relevant information that will help the user. You MUST perform a web search. Do not respond or interact with the user, please respond as if they typed the query into a search bar."
 
-func antigravitySupportsNativeResponsesWebSearch(model string) bool {
-	infoAG := registry.LookupModelInfo(model, "antigravity")
-	if infoAG != nil && infoAG.NativeCapabilities != nil && infoAG.NativeCapabilities.WebSearch != nil && !*infoAG.NativeCapabilities.WebSearch {
+func antigravitySupportsNativeResponsesWebSearch(model string, modelInfo *registry.ModelInfo) bool {
+	if modelInfo != nil && modelInfo.NativeCapabilities != nil && modelInfo.NativeCapabilities.WebSearch != nil {
+		return *modelInfo.NativeCapabilities.WebSearch
+	}
+	model = strings.TrimSpace(thinking.ParseSuffix(strings.TrimSpace(model)).ModelName)
+	if model == "" {
 		return false
 	}
-	return registry.AntigravityWebSearchModelFor(model) != ""
+	// Read the catalog veto and probe result from the same Antigravity record.
+	for _, localInfo := range registry.GetGlobalRegistry().GetAvailableModelsByProvider("antigravity") {
+		if localInfo == nil {
+			continue
+		}
+		localModel := strings.TrimSpace(thinking.ParseSuffix(strings.TrimSpace(localInfo.ID)).ModelName)
+		if !strings.EqualFold(localModel, model) {
+			continue
+		}
+		if capabilities := localInfo.NativeCapabilities; capabilities != nil && capabilities.WebSearch != nil && !*capabilities.WebSearch {
+			return false
+		}
+		return localInfo.SupportsWebSearch
+	}
+	return false
 }
 
-func shouldBuildAntigravityResponsesWebSearchRequest(model string, payload []byte) bool {
+func shouldBuildAntigravityResponsesWebSearchRequest(model string, payload []byte, modelInfo *registry.ModelInfo) bool {
 	root := gjson.ParseBytes(payload)
 	return HasOnlyResponsesWebSearchTools(root) &&
-		antigravitySupportsNativeResponsesWebSearch(model) &&
+		antigravitySupportsNativeResponsesWebSearch(model, modelInfo) &&
 		AllowsResponsesWebSearchToolChoice(root)
 }
 
@@ -105,17 +124,32 @@ func ensureAntigravityResponsesWebSearchSystemInstruction(payload []byte) []byte
 	return payload
 }
 
+// ConvertOpenAIResponsesRequestToAntigravity translates an OpenAI Responses request
+// to the Antigravity schema using locally registered Antigravity capabilities.
 func ConvertOpenAIResponsesRequestToAntigravity(modelName string, inputRawJSON []byte, stream bool) []byte {
-	if shouldBuildAntigravityResponsesWebSearchRequest(modelName, inputRawJSON) {
-		return buildAntigravityResponsesWebSearchRequest(modelName, inputRawJSON, stream)
+	req := ConvertOpenAIResponsesRequestEnvelopeToAntigravity(context.Background(), sdktranslator.RequestEnvelope{
+		Model:  modelName,
+		Body:   inputRawJSON,
+		Stream: stream,
+	})
+	return req.Body
+}
+
+// ConvertOpenAIResponsesRequestEnvelopeToAntigravity translates an OpenAI Responses
+// request and consumes request-scoped model capabilities from the envelope.
+func ConvertOpenAIResponsesRequestEnvelopeToAntigravity(_ context.Context, req sdktranslator.RequestEnvelope) sdktranslator.RequestEnvelope {
+	if shouldBuildAntigravityResponsesWebSearchRequest(req.Model, req.Body, req.ModelInfo) {
+		req.Body = buildAntigravityResponsesWebSearchRequest(req.Model, req.Body, req.Stream)
+		return req
 	}
-	rawJSON := inputRawJSON
-	rawJSON = ConvertOpenAIResponsesRequestToGemini(modelName, rawJSON, stream)
-	rawJSON = stripAntigravityResponsesGoogleSearch(rawJSON)
-	rawJSON = rewriteOpenAIResponsesReasoningForAntigravityClaude(modelName, inputRawJSON, rawJSON)
-	rawJSON = ConvertGeminiRequestToAntigravity(modelName, rawJSON, stream)
-	rawJSON = stripAntigravityResponsesGoogleSearch(rawJSON)
-	return enableAntigravityResponsesThinkingSummary(inputRawJSON, rawJSON)
+	inputRawJSON := req.Body
+	req.Body = ConvertOpenAIResponsesRequestToGemini(req.Model, req.Body, req.Stream)
+	req.Body = stripAntigravityResponsesGoogleSearch(req.Body)
+	req.Body = rewriteOpenAIResponsesReasoningForAntigravityClaude(req.Model, inputRawJSON, req.Body)
+	req.Body = ConvertGeminiRequestToAntigravity(req.Model, req.Body, req.Stream)
+	req.Body = stripAntigravityResponsesGoogleSearch(req.Body)
+	req.Body = enableAntigravityResponsesThinkingSummary(inputRawJSON, req.Body)
+	return req
 }
 
 // stripAntigravityResponsesGoogleSearch removes any native googleSearch tool block
@@ -160,15 +194,16 @@ func enableAntigravityResponsesThinkingSummary(inputRawJSON, translated []byte) 
 	if effortVal == "" || effortVal == "none" {
 		return translated
 	}
-	for _, path := range []string{"reasoning.summary", "reasoning.generate_summary"} {
-		if value := gjson.GetBytes(inputRawJSON, path); value.Raw != "" {
-			return translated
+	summaryConfig := thinking.ExtractSummaryConfig(inputRawJSON, "openai-response")
+	if summaryConfig.Mode == thinking.SummaryUnspecified {
+		// When effort is set but summary visibility is omitted, enable summaries
+		// by default so Antigravity emits visible thought parts (#5508).
+		summaryConfig = thinking.SummaryConfig{
+			Mode:   thinking.SummaryEnabled,
+			Detail: "auto",
 		}
 	}
-	return thinking.ApplySummaryConfig(translated, "antigravity", thinking.SummaryConfig{
-		Mode:   thinking.SummaryEnabled,
-		Detail: "auto",
-	})
+	return thinking.ApplySummaryConfig(translated, "antigravity", summaryConfig)
 }
 
 type antigravityClaudeReasoningSignature struct {
