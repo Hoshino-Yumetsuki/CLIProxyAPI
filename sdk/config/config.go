@@ -10,6 +10,8 @@ type SDKConfig = internalconfig.SDKConfig
 
 type Config = internalconfig.Config
 
+type ClientConfig = internalconfig.ClientConfig
+type CodexClientConfig = internalconfig.CodexClientConfig
 type StreamingConfig = internalconfig.StreamingConfig
 type TLSConfig = internalconfig.TLSConfig
 type DiscoveryConfig = internalconfig.DiscoveryConfig
