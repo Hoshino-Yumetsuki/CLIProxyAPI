@@ -122,20 +122,15 @@ cliproxy.GlobalModelRegistry().RegisterClient(authID, "myprov", models)
 
 The embedded server calls this automatically for built‑in providers; for custom providers, register during startup (e.g., after loading auths) or upon auth registration hooks.
 
-Antigravity registers its baseline catalog immediately, then asynchronously calls
-`/v1internal:fetchAvailableModels` using the credential. Models returned in the API's
-`models` map are added to both `/v1/models` and provider routing, even when absent
-from the static catalog or `webSearchModelIds`. Discovery preserves existing model
-metadata, plugin models, and cooldown state; failed fetches leave the baseline
-available. Successful fetches are cached for five minutes and reused by subsequent
-registration probes; this is not a periodic catalog poll.
+Antigravity registers models from the static catalog, with the configured OAuth
+exclusions, aliases, model settings, and credential prefixes. Its asynchronous
+`/v1internal:fetchAvailableModels` probe reads only `webSearchModelIds` to update
+web-search capabilities on already registered models; it does not import the API's
+`models` list or add routes for API-only models.
 
-Discovered models follow the same OAuth exclusions, aliases, model settings, and
-credential prefixes as baseline models. Use the exact ID shown in `/v1/models`;
-upstream variants such as `claude-sonnet-5-5-high` are not automatically renamed to
-`claude-sonnet-5-5`. Configure an OAuth model alias if a shorter client-facing name
-is needed. `cmd/fetch_antigravity_models` exports a catalog for inspection; running
-that command alone does not register models in a running proxy.
+Use the exact ID shown in `/v1/models`, or configure an OAuth model alias for a
+different client-facing name. `cmd/fetch_antigravity_models` exports a catalog for
+inspection; running it does not register models in a running proxy.
 
 ## Credentials & Transports
 

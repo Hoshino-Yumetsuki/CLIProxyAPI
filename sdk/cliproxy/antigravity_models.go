@@ -8,7 +8,6 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,7 +88,6 @@ var (
 )
 
 type antigravityModelCapabilityHints struct {
-	Models            map[string]antigravityFetchedModel
 	WebSearchModelIDs map[string]struct{}
 	// Nil means unknown; an empty non-nil set is an authoritative empty catalog.
 	ModelIDs map[string]struct{}
@@ -549,7 +547,7 @@ func normalizeAntigravityFetchedModelID(modelID string) string {
 	return sdkauth.NormalizeAntigravityModelID(modelID)
 }
 
-// WaitAntigravityProbes waits for asynchronous Antigravity model discovery and capability probes to complete.
+// WaitAntigravityProbes waits for any in-flight asynchronous Antigravity capability probes to complete.
 func (s *Service) WaitAntigravityProbes() {
 	if s == nil {
 		return
