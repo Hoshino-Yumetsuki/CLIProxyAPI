@@ -197,7 +197,7 @@ func TestLookupModelInfoIncludesClaudeSonnet5(t *testing.T) {
 	}
 }
 
-func TestApplyClientModelDiscovery_UpdatesAllViews(t *testing.T) {
+func TestApplyClientModelCapabilities_UpdatesAllViews(t *testing.T) {
 	r := newTestModelRegistry()
 	r.RegisterClient("ag-client-1", "antigravity", []*ModelInfo{{
 		ID:                "gemini-3.1-flash-lite",
@@ -205,7 +205,7 @@ func TestApplyClientModelDiscovery_UpdatesAllViews(t *testing.T) {
 	}})
 
 	epoch := r.ClientRegistrationEpoch("ag-client-1")
-	applied := r.ApplyClientModelDiscovery("ag-client-1", epoch, nil, func(modelID string, info *ModelInfo) {
+	applied := r.ApplyClientModelCapabilities("ag-client-1", epoch, func(modelID string, info *ModelInfo) {
 		if modelID == "gemini-3.1-flash-lite" {
 			info.SupportsWebSearch = true
 		}
@@ -255,7 +255,7 @@ func TestMultiClientRegistration_PreservesProbedCapabilities(t *testing.T) {
 
 	// A probes successfully -> SupportsWebSearch = true
 	epochA := r.ClientRegistrationEpoch("client-A")
-	r.ApplyClientModelDiscovery("client-A", epochA, nil, func(modelID string, info *ModelInfo) {
+	r.ApplyClientModelCapabilities("client-A", epochA, func(modelID string, info *ModelInfo) {
 		if modelID == "gemini-3.1-flash-lite" {
 			info.SupportsWebSearch = true
 		}
@@ -302,7 +302,7 @@ func TestReRegisterClient_ClearsStaleProbedCapabilitiesWhenNoOtherClientSupports
 		SupportsWebSearch: false,
 	}})
 	epochA := r.ClientRegistrationEpoch("client-A")
-	r.ApplyClientModelDiscovery("client-A", epochA, nil, func(modelID string, info *ModelInfo) {
+	r.ApplyClientModelCapabilities("client-A", epochA, func(modelID string, info *ModelInfo) {
 		if modelID == "gemini-3.1-flash-lite" {
 			info.SupportsWebSearch = true
 		}
@@ -338,160 +338,5 @@ func TestReRegisterClient_ClearsStaleProbedCapabilitiesWhenNoOtherClientSupports
 	clientAModels := r.GetModelsForClient("client-A")
 	if len(clientAModels) != 1 || clientAModels[0].SupportsWebSearch {
 		t.Fatalf("GetModelsForClient(A): expected SupportsWebSearch=false, got %+v", clientAModels)
-	}
-}
-
-func TestApplyClientModelDiscovery_AddsRoutingAndInvalidatesCache(t *testing.T) {
-	r := newTestModelRegistry()
-	r.RegisterClient("ag", "antigravity", []*ModelInfo{{ID: "static", DisplayName: "Static"}})
-	if got := r.GetAvailableModels("openai"); len(got) != 1 {
-		t.Fatalf("initial cached model count = %d, want 1", len(got))
-	}
-	epoch := r.ClientRegistrationEpoch("ag")
-	registrationEpoch := r.RegistrationEpoch()
-	hook := &capturingHook{registeredCh: make(chan registeredCall, 1)}
-	r.SetHook(hook)
-	discovered := &ModelInfo{ID: "api-only", DisplayName: "API Only", Thinking: &ThinkingSupport{Levels: []string{"high"}}}
-	models := []*ModelInfo{nil, {ID: ""}, {ID: " "}, {ID: "static", DisplayName: "Do not overwrite"}, discovered, discovered}
-	if !r.ApplyClientModelDiscovery("ag", epoch, models, func(id string, info *ModelInfo) {
-		if id == "api-only" {
-			info.SupportsWebSearch = true
-		}
-	}) {
-		t.Fatal("discovery rejected")
-	}
-	if !r.ClientSupportsModel("ag", "api-only") {
-		t.Fatal("discovered model not routable for client")
-	}
-	if providers := r.GetModelProviders("api-only"); len(providers) != 1 || providers[0] != "antigravity" {
-		t.Fatalf("discovered model providers = %v", providers)
-	}
-	if got := r.GetAvailableModels("openai"); len(got) != 2 {
-		t.Fatalf("refreshed cached model count = %d, want 2", len(got))
-	}
-	if info := r.GetModelInfo("api-only", "antigravity"); info == nil || !info.SupportsWebSearch {
-		t.Fatalf("discovered capability missing from provider view: %+v", info)
-	}
-	if info := r.GetModelInfo("static", "antigravity"); info.DisplayName != "Static" {
-		t.Fatalf("existing metadata overwritten: %+v", info)
-	}
-	if r.ClientRegistrationEpoch("ag") != epoch || r.RegistrationEpoch() != registrationEpoch+1 {
-		t.Fatal("discovery must preserve lifecycle epoch and advance structural epoch once")
-	}
-	select {
-	case call := <-hook.registeredCh:
-		if call.clientID != "ag" || call.provider != "antigravity" || len(call.models) != 2 || call.models[1].ID != "api-only" || !call.models[1].SupportsWebSearch {
-			t.Fatalf("discovery hook must receive full updated snapshot: %+v", call)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("discovery registration hook not called")
-	}
-	r.SetHook(nil)
-	discovered.DisplayName = "caller mutation"
-	discovered.Thinking.Levels[0] = "caller mutation"
-	if info := r.GetModelInfo("api-only", "antigravity"); info.DisplayName != "API Only" || info.Thinking.Levels[0] != "high" {
-		t.Fatalf("discovery metadata not cloned: %+v", info)
-	}
-	if !r.ApplyClientModelDiscovery("ag", epoch, models, nil) {
-		t.Fatal("repeat discovery rejected")
-	}
-	if r.models["api-only"].Count != 1 || r.models["api-only"].Providers["antigravity"] != 1 || len(r.clientModels["ag"]) != 2 {
-		t.Fatal("duplicate discovery overcounted bindings")
-	}
-	if r.RegistrationEpoch() != registrationEpoch+1 {
-		t.Fatal("duplicate discovery changed structural epoch")
-	}
-	r.UnregisterClient("ag")
-	if _, exists := r.models["api-only"]; exists {
-		t.Fatal("discovered model survived removal of its only client")
-	}
-}
-
-func TestApplyClientModelDiscovery_PreservesSchedulingAndSharedMetadata(t *testing.T) {
-	r := newTestModelRegistry()
-	r.RegisterClient("other", "antigravity", []*ModelInfo{{ID: "shared", DisplayName: "Shared Metadata", ContextLength: 1234}})
-	r.RegisterClient("ag", "antigravity", []*ModelInfo{{ID: "quota", DisplayName: "Quota Metadata"}, {ID: "plugin", DisplayName: "Plugin Metadata"}})
-	epoch := r.ClientRegistrationEpoch("ag")
-	if !r.ApplyClientModelProjections("ag", epoch, 7, []ClientModelProjection{{ModelID: "quota", Suspended: true, SuspendReason: "credential_quota", QuotaExceeded: true}}) {
-		t.Fatal("initial projection rejected")
-	}
-	quota := r.models["quota"]
-	quotaTime := quota.QuotaExceededClients["ag"]
-	updated := quota.LastUpdated
-	if !r.ApplyClientModelDiscovery("ag", epoch, []*ModelInfo{{ID: "quota", DisplayName: "Overwrite"}, {ID: "shared", DisplayName: "Discovery Metadata", ContextLength: 1}, {ID: "new"}}, nil) {
-		t.Fatal("discovery rejected")
-	}
-	if quota.QuotaExceededClients["ag"] != quotaTime || quota.SuspendedClients["ag"] != "credential_quota" || !quota.LastUpdated.Equal(updated) {
-		t.Fatal("discovery reset existing scheduling state")
-	}
-	if r.clientGenerations["ag"] != 7 || r.ClientRegistrationEpoch("ag") != epoch {
-		t.Fatal("discovery changed projection lifecycle")
-	}
-	if info := r.GetModelInfo("quota", "antigravity"); info.DisplayName != "Quota Metadata" {
-		t.Fatalf("existing quota metadata changed: %+v", info)
-	}
-	if !r.ClientSupportsModel("ag", "plugin") || r.clientModelInfos["ag"]["plugin"].DisplayName != "Plugin Metadata" {
-		t.Fatal("discovery removed or replaced plugin model")
-	}
-	for _, provider := range []string{"", "antigravity"} {
-		if info := r.GetModelInfo("shared", provider); info.DisplayName != "Shared Metadata" || info.ContextLength != 1234 {
-			t.Fatalf("shared metadata replaced for provider %q: %+v", provider, info)
-		}
-	}
-	if r.models["shared"].Count != 2 || r.models["shared"].Providers["antigravity"] != 2 {
-		t.Fatal("shared discovered binding not counted")
-	}
-	if r.ApplyClientModelProjections("ag", epoch, 6, []ClientModelProjection{{ModelID: "quota"}}) {
-		t.Fatal("discovery permitted stale projection generation")
-	}
-	if !r.ApplyClientModelProjections("ag", epoch, 8, []ClientModelProjection{{ModelID: "new", Suspended: true, SuspendReason: "manual"}}) {
-		t.Fatal("discovered model rejected current lifecycle projection")
-	}
-	r.UnregisterClient("ag")
-	if r.models["shared"].Count != 1 || r.models["shared"].Providers["antigravity"] != 1 {
-		t.Fatal("discovered shared binding not removed correctly")
-	}
-}
-
-func TestApplyClientModelDiscovery_RejectsStaleAndDeletedClients(t *testing.T) {
-	for _, action := range []string{"reregister", "unregister", "empty-registration"} {
-		t.Run(action, func(t *testing.T) {
-			r := newTestModelRegistry()
-			r.RegisterClient("ag", "antigravity", []*ModelInfo{{ID: "original"}})
-			epoch := r.ClientRegistrationEpoch("ag")
-			switch action {
-			case "reregister":
-				r.RegisterClient("ag", "antigravity", []*ModelInfo{{ID: "replacement", DisplayName: "Current"}})
-			case "unregister":
-				r.UnregisterClient("ag")
-			case "empty-registration":
-				r.RegisterClient("ag", "antigravity", nil)
-			}
-			generation := r.GetGeneration()
-			registrationEpoch := r.RegistrationEpoch()
-			mutated := false
-			mutate := func(_ string, info *ModelInfo) {
-				mutated = true
-				info.DisplayName = "Stale"
-				info.SupportsWebSearch = true
-			}
-			if r.ApplyClientModelDiscovery("ag", epoch, []*ModelInfo{{ID: "resurrected"}}, mutate) {
-				t.Fatal("stale discovery accepted")
-			}
-			if action != "reregister" && r.ApplyClientModelDiscovery("ag", r.ClientRegistrationEpoch("ag"), []*ModelInfo{{ID: "resurrected"}}, mutate) {
-				t.Fatal("deleted client accepted discovery even at current epoch")
-			}
-			if mutated || r.ClientSupportsModel("ag", "resurrected") || r.models["resurrected"] != nil {
-				t.Fatal("stale discovery mutated or resurrected registry state")
-			}
-			if r.GetGeneration() != generation || r.RegistrationEpoch() != registrationEpoch {
-				t.Fatal("rejected discovery invalidated registry state")
-			}
-			if action == "reregister" {
-				if info := r.GetModelInfo("replacement", "antigravity"); info.DisplayName != "Current" || info.SupportsWebSearch {
-					t.Fatalf("stale discovery overwrote current metadata: %+v", info)
-				}
-			}
-		})
 	}
 }

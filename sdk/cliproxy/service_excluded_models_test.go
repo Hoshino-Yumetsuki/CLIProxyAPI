@@ -327,7 +327,7 @@ func TestRegisterModelsForAuth_AntigravityFetchesWebSearchCapability(t *testing.
 		}
 	}
 
-	var webSearchModel, agentModel, staticOnlyModel *internalregistry.ModelInfo
+	var webSearchModel, agentModel, staticOnlyModel, fetchedOnlyModel *internalregistry.ModelInfo
 	for _, model := range models {
 		if model == nil {
 			continue
@@ -339,6 +339,8 @@ func TestRegisterModelsForAuth_AntigravityFetchesWebSearchCapability(t *testing.
 			agentModel = model
 		case "gpt-oss-120b-medium":
 			staticOnlyModel = model
+		case "fetched-only-search-model":
+			fetchedOnlyModel = model
 		}
 	}
 	if webSearchModel == nil {
@@ -365,6 +367,9 @@ func TestRegisterModelsForAuth_AntigravityFetchesWebSearchCapability(t *testing.
 	}
 	if staticOnlyModel.SupportsWebSearch {
 		t.Fatal("gpt-oss-120b-medium should not support web search")
+	}
+	if fetchedOnlyModel != nil {
+		t.Fatalf("fetched-only model should not be registered: %#v", fetchedOnlyModel)
 	}
 }
 
