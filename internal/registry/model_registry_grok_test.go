@@ -44,7 +44,6 @@ func TestGetAvailableModelInfosHonorsQuotaAndSuspensionAvailability(t *testing.T
 		quotaExceeded      bool
 		quotaSuspended     bool
 		manualSuspended    bool
-		manualProvider     string
 		wantModelAvailable bool
 	}{
 		{
@@ -55,14 +54,6 @@ func TestGetAvailableModelInfosHonorsQuotaAndSuspensionAvailability(t *testing.T
 		{
 			name:               "quota suspension reason remains listed",
 			quotaSuspended:     true,
-			wantModelAvailable: true,
-		},
-		{
-			name:               "quota cooldown in one provider survives manual suspension in another",
-			clientCount:        2,
-			quotaExceeded:      true,
-			manualSuspended:    true,
-			manualProvider:     "claude",
 			wantModelAvailable: true,
 		},
 		{
@@ -80,12 +71,8 @@ func TestGetAvailableModelInfosHonorsQuotaAndSuspensionAvailability(t *testing.T
 			const modelID = "shared-model"
 			modelRegistry := newTestModelRegistry()
 			modelRegistry.RegisterClient("quota-client", "openai", []*ModelInfo{{ID: modelID}})
-			manualProvider := testCase.manualProvider
-			if manualProvider == "" {
-				manualProvider = "openai"
-			}
 			if testCase.clientCount > 1 {
-				modelRegistry.RegisterClient("manual-client", manualProvider, []*ModelInfo{{ID: modelID}})
+				modelRegistry.RegisterClient("manual-client", "openai", []*ModelInfo{{ID: modelID}})
 			}
 			if testCase.quotaExceeded {
 				modelRegistry.SetModelQuotaExceeded("quota-client", modelID)

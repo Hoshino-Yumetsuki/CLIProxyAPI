@@ -122,11 +122,16 @@ cliproxy.GlobalModelRegistry().RegisterClient(authID, "myprov", models)
 
 The embedded server calls this automatically for built‑in providers; for custom providers, register during startup (e.g., after loading auths) or upon auth registration hooks.
 
-Antigravity registers models from the static catalog, with the configured OAuth
-exclusions, aliases, model settings, and credential prefixes. Its asynchronous
-`/v1internal:fetchAvailableModels` probe reads only `webSearchModelIds` to update
-web-search capabilities on already registered models; it does not import the API's
-`models` list or add routes for API-only models.
+In standalone mode, Antigravity fetches per-account model entitlements from
+`/v1internal:fetchAvailableModels`. The registered native model list is the
+intersection of the API's `models` IDs and CPA's static Antigravity catalog;
+API-only IDs are not added. Static definitions supply model metadata, while
+`webSearchModelIds` supplies web-search capabilities. OAuth exclusions, aliases,
+model settings, and credential prefixes are applied before publication.
+
+Account catalogs are cached and refreshed periodically. Failed refreshes retain
+the last successful catalog; a successful empty catalog removes that account's
+native models. Home-managed and plugin-owned catalogs retain their own ownership.
 
 Use the exact ID shown in `/v1/models`, or configure an OAuth model alias for a
 different client-facing name. `cmd/fetch_antigravity_models` exports a catalog for

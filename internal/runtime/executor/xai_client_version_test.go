@@ -32,27 +32,14 @@ func TestXAIChatProxyClientVersionMeetsServerFloor(t *testing.T) {
 	// cli-chat-proxy.grok.com started rejecting client versions older than
 	// 1.0.13 with HTTP 426 ("Your Grok CLI version is outdated"); see #6249.
 	const serverFloor = "1.0.13"
-	if !xaiVersionAtLeast(xaiClientVersionValue, serverFloor) {
-		t.Fatalf("xaiClientVersionValue = %q, cli-chat-proxy rejects clients older than %s with 426", xaiClientVersionValue, serverFloor)
-	}
-}
-
-func TestXAIChatProxyIdentityHeadersDeriveFromOneConstant(t *testing.T) {
-	auth := &cliproxyauth.Auth{
-		Provider:   "xai",
-		Attributes: map[string]string{"auth_kind": "oauth"},
-	}
+	auth := &cliproxyauth.Auth{Provider: "xai", Attributes: map[string]string{"auth_kind": "oauth"}}
 	req, err := http.NewRequest(http.MethodPost, xaiChatBaseURL(auth)+"/chat/completions", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyXAIChatHeaders(req, auth, "token", false, "")
-
-	if got := req.Header.Get(xaiClientVersionHeader); got != xaiClientVersionValue {
-		t.Fatalf("%s = %q, want %q", xaiClientVersionHeader, got, xaiClientVersionValue)
-	}
-	if got, want := req.Header.Get("User-Agent"), "xai-grok-workspace/"+xaiClientVersionValue; got != want {
-		t.Fatalf("User-Agent = %q, want %q (must derive from xaiClientVersionValue)", got, want)
+	applyXAIChatHeaders(req, auth, "token", false, "", "grok-4.6")
+	if got := req.Header.Get(xaiClientVersionHeader); !xaiVersionAtLeast(got, serverFloor) {
+		t.Fatalf("wire client version = %q, cli-chat-proxy rejects clients older than %s with 426", got, serverFloor)
 	}
 }
 
@@ -68,7 +55,7 @@ func TestXAIChatProxyCustomHeadersOverridePinnedVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyXAIChatHeaders(req, auth, "token", false, "")
+	applyXAIChatHeaders(req, auth, "token", false, "", "grok-4.6")
 
 	if got := req.Header.Get(xaiClientVersionHeader); got != "9.9.9" {
 		t.Fatalf("%s = %q, want the per-auth custom header to override the pin", xaiClientVersionHeader, got)

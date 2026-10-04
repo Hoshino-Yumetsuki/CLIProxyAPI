@@ -7,14 +7,9 @@ import (
 
 // Healthy providers remain discoverable throughout quota windows and refreshes.
 func TestCredentialQuotaKeepsHealthyCatalogAcrossRefresh(t *testing.T) {
-	r := newTestModelRegistry()
-	models := []*ModelInfo{{ID: "audit-luna", OwnedBy: "openai"}}
-	r.RegisterClient("healthy", "codex", models)
-	r.RegisterClient("oauth", "codex", models)
 	base := time.Date(2026, 9, 22, 8, 53, 19, 0, time.UTC)
 	registration := &ModelRegistration{
 		Count:                2,
-		Providers:            map[string]int{"codex": 2},
 		QuotaExceededClients: map[string]*time.Time{"oauth": &base},
 		SuspendedClients:     map[string]string{"oauth": "credential_quota"},
 	}
@@ -25,9 +20,7 @@ func TestCredentialQuotaKeepsHealthyCatalogAcrossRefresh(t *testing.T) {
 		{0, true}, {5*time.Minute - time.Nanosecond, true},
 		{5 * time.Minute, true}, {6 * time.Minute, true},
 	} {
-		r.mutex.RLock()
-		available, _ := r.modelRegistrationAvailabilityLocked(registration, base.Add(tc.offset))
-		r.mutex.RUnlock()
+		available, _ := modelRegistrationAvailability(registration, base.Add(tc.offset))
 		t.Logf("since projection=%v listed=%v; OAuth suspension unchanged", tc.offset, available)
 		if available != tc.want {
 			t.Fatalf("at %v: listed=%v, want %v", tc.offset, available, tc.want)
@@ -35,6 +28,10 @@ func TestCredentialQuotaKeepsHealthyCatalogAcrossRefresh(t *testing.T) {
 	}
 	// A registry refresh clears the old quota timestamp; reapplying an active
 	// cooldown starts the five-minute window again without another upstream 429.
+	r := newTestModelRegistry()
+	models := []*ModelInfo{{ID: "audit-luna", OwnedBy: "openai"}}
+	r.RegisterClient("healthy", "codex", models)
+	r.RegisterClient("oauth", "codex", models)
 	_, epoch := r.GetModelsAndEpochForClient("oauth")
 	projection := []ClientModelProjection{{ModelID: "audit-luna", Suspended: true, SuspendReason: "credential_quota", QuotaExceeded: true}}
 	if !r.ApplyClientModelProjections("oauth", epoch, 1, projection) {
