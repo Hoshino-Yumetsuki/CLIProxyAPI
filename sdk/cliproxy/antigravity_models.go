@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -88,6 +89,7 @@ var (
 )
 
 type antigravityModelCapabilityHints struct {
+	Models            map[string]antigravityFetchedModel
 	WebSearchModelIDs map[string]struct{}
 	// Nil means unknown; an empty non-nil set is an authoritative empty catalog.
 	ModelIDs map[string]struct{}
@@ -511,18 +513,34 @@ func shouldSkipAntigravityFetchedModelID(modelID string) bool {
 	}
 }
 
-func applyAntigravityFetchedModelCapabilities(models []*ModelInfo, hints antigravityModelCapabilityHints) []*ModelInfo {
-	if len(models) == 0 || len(hints.WebSearchModelIDs) == 0 {
-		return models
+// antigravityDiscoveredModels constructs only metadata supplied by the API.
+// Existing registrations retain their richer static or plugin capabilities.
+func antigravityDiscoveredModels(hints antigravityModelCapabilityHints) []*ModelInfo {
+	ids := make([]string, 0, len(hints.Models))
+	for id := range hints.Models {
+		ids = append(ids, id)
 	}
 	for _, model := range models {
 		if model == nil {
 			continue
 		}
-		modelID := normalizeAntigravityFetchedModelID(model.ID)
-		if _, ok := hints.WebSearchModelIDs[modelID]; ok {
-			model.SupportsWebSearch = true
+		displayName := strings.TrimSpace(entry.DisplayName)
+		if displayName == "" {
+			displayName = modelID
 		}
+		_, webSearch := hints.WebSearchModelIDs[normalizeAntigravityFetchedModelID(modelID)]
+		models = append(models, &ModelInfo{
+			ID:                  modelID,
+			Object:              "model",
+			OwnedBy:             "antigravity",
+			Type:                "antigravity",
+			Name:                modelID,
+			DisplayName:         displayName,
+			Description:         displayName,
+			ContextLength:       max(0, entry.MaxTokens),
+			MaxCompletionTokens: max(0, entry.MaxOutputTokens),
+			SupportsWebSearch:   webSearch,
+		})
 	}
 	return models
 }
@@ -531,7 +549,7 @@ func normalizeAntigravityFetchedModelID(modelID string) string {
 	return sdkauth.NormalizeAntigravityModelID(modelID)
 }
 
-// WaitAntigravityProbes waits for any in-flight asynchronous Antigravity capability probes to complete.
+// WaitAntigravityProbes waits for asynchronous Antigravity model discovery and capability probes to complete.
 func (s *Service) WaitAntigravityProbes() {
 	if s == nil {
 		return
