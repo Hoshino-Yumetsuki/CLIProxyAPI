@@ -1196,12 +1196,11 @@ func (r *ModelRegistry) ApplyClientModelProjections(clientID string, epoch uint6
 	return true
 }
 
-// ApplyClientModelDiscovery adds previously unknown client models and applies capability
-// mutations if the client is still registered at expectedEpoch. Discovery extends the
-// current lifecycle: it preserves client epochs, projection generations and scheduling state.
-// A nil mutate function allows discovery without capability changes.
-func (r *ModelRegistry) ApplyClientModelDiscovery(clientID string, expectedEpoch uint64, models []*ModelInfo, mutate func(modelID string, info *ModelInfo)) bool {
-	if r == nil {
+// ApplyClientModelCapabilities applies capability mutations to matching models of clientID
+// if the client is currently registered and its registration epoch matches expectedEpoch.
+// Returns true if applied, false if client is unregistered or epoch changed.
+func (r *ModelRegistry) ApplyClientModelCapabilities(clientID string, expectedEpoch uint64, mutate func(modelID string, info *ModelInfo)) bool {
+	if r == nil || mutate == nil {
 		return false
 	}
 	clientID = strings.TrimSpace(clientID)
@@ -1214,9 +1213,8 @@ func (r *ModelRegistry) ApplyClientModelDiscovery(clientID string, expectedEpoch
 	if r.clientEpochs == nil || r.clientEpochs[clientID] != expectedEpoch {
 		return false
 	}
-	registeredIDs, registered := r.clientModels[clientID]
 	clientInfos, exists := r.clientModelInfos[clientID]
-	if !registered || len(registeredIDs) == 0 || !exists || len(clientInfos) == 0 {
+	if !exists || len(clientInfos) == 0 {
 		return false
 	}
 
@@ -1245,16 +1243,6 @@ func (r *ModelRegistry) ApplyClientModelDiscovery(clientID string, expectedEpoch
 		}
 	}
 	r.invalidateAvailableModelsCacheLocked()
-	if added {
-		r.registrationEpoch.Add(1)
-		if r.hook != nil {
-			clientModels := make([]*ModelInfo, 0, len(r.clientModels[clientID]))
-			for _, id := range r.clientModels[clientID] {
-				clientModels = append(clientModels, clientInfos[id])
-			}
-			r.triggerModelsRegistered(provider, clientID, clientModels)
-		}
-	}
 	return true
 }
 
