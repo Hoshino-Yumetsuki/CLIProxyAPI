@@ -1070,11 +1070,12 @@ func (r *ModelRegistry) ApplyClientModelProjections(clientID string, epoch uint6
 	return true
 }
 
-// ApplyClientModelCapabilities applies capability mutations to matching models of clientID
-// if the client is currently registered and its registration epoch matches expectedEpoch.
-// Returns true if applied, false if client is unregistered or epoch changed.
-func (r *ModelRegistry) ApplyClientModelCapabilities(clientID string, expectedEpoch uint64, mutate func(modelID string, info *ModelInfo)) bool {
-	if r == nil || mutate == nil {
+// ApplyClientModelDiscovery adds previously unknown client models and applies capability
+// mutations if the client is still registered at expectedEpoch. Discovery extends the
+// current lifecycle: it preserves client epochs, projection generations and scheduling state.
+// A nil mutate function allows discovery without capability changes.
+func (r *ModelRegistry) ApplyClientModelDiscovery(clientID string, expectedEpoch uint64, models []*ModelInfo, mutate func(modelID string, info *ModelInfo)) bool {
+	if r == nil {
 		return false
 	}
 	clientID = strings.TrimSpace(clientID)
@@ -1087,15 +1088,52 @@ func (r *ModelRegistry) ApplyClientModelCapabilities(clientID string, expectedEp
 	if r.clientEpochs == nil || r.clientEpochs[clientID] != expectedEpoch {
 		return false
 	}
+	registeredIDs, registered := r.clientModels[clientID]
 	clientInfos, exists := r.clientModelInfos[clientID]
-	if !exists || len(clientInfos) == 0 {
+	if !registered || len(registeredIDs) == 0 || !exists || len(clientInfos) == 0 {
 		return false
 	}
 
 	provider := r.clientProviders[clientID]
+	added := false
+	now := time.Now()
+	for _, model := range models {
+		if model == nil || strings.TrimSpace(model.ID) == "" {
+			continue
+		}
+		id := model.ID
+		if _, exists := clientInfos[id]; exists {
+			continue
+		}
+		if reg, exists := r.models[id]; exists {
+			// Unlike re-registration, discovery must not replace existing metadata
+			// or reset quota/suspension state on other bindings of this model.
+			reg.Count++
+			reg.LastUpdated = now
+			if provider != "" {
+				if reg.Providers == nil {
+					reg.Providers = make(map[string]int)
+				}
+				reg.Providers[provider]++
+				if reg.InfoByProvider == nil {
+					reg.InfoByProvider = make(map[string]*ModelInfo)
+				}
+				if reg.InfoByProvider[provider] == nil {
+					reg.InfoByProvider[provider] = cloneModelInfo(model)
+				}
+			}
+		} else {
+			r.addModelRegistration(id, provider, model, now, clientID)
+		}
+		clientInfos[id] = cloneModelInfo(model)
+		r.clientModels[clientID] = append(r.clientModels[clientID], id)
+		added = true
+	}
 	for id, info := range clientInfos {
 		if info != nil {
-			mutate(id, info)
+			if mutate != nil {
+				mutate(id, info)
+			}
 			if reg, okReg := r.models[id]; okReg && reg != nil {
 				hasWebSearch := r.hasClientSupportingWebSearchLocked(id, "", "")
 				if reg.Info != nil {
@@ -1108,6 +1146,16 @@ func (r *ModelRegistry) ApplyClientModelCapabilities(clientID string, expectedEp
 		}
 	}
 	r.invalidateAvailableModelsCacheLocked()
+	if added {
+		r.registrationEpoch.Add(1)
+		if r.hook != nil {
+			clientModels := make([]*ModelInfo, 0, len(r.clientModels[clientID]))
+			for _, id := range r.clientModels[clientID] {
+				clientModels = append(clientModels, clientInfos[id])
+			}
+			r.triggerModelsRegistered(provider, clientID, clientModels)
+		}
+	}
 	return true
 }
 
