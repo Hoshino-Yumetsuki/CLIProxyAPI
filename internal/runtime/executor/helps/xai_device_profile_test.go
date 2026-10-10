@@ -1,7 +1,6 @@
 package helps
 
 import (
-	"fmt"
 	"testing"
 
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -23,13 +22,6 @@ func TestResolveXAIDeviceProfileIsolatesAccounts(t *testing.T) {
 	}
 	if a.AgentID != aAgain.AgentID || a.SessionID != aAgain.SessionID {
 		t.Fatalf("profile not stable: first=%+v second=%+v", a, aAgain)
-	}
-	if a.ClientVersion != defaultXAIClientVersion {
-		t.Fatalf("ClientVersion = %q, want %q", a.ClientVersion, defaultXAIClientVersion)
-	}
-	wantUA := fmt.Sprintf("%s/%s (%s; %s)", defaultXAIClientIdentifier, defaultXAIClientVersion, a.OS, a.Arch)
-	if a.UserAgent() != wantUA {
-		t.Fatalf("UserAgent = %q, want %q", a.UserAgent(), wantUA)
 	}
 }
 
@@ -78,6 +70,9 @@ func TestEnsureXAIDeviceProfileInAuthPersistsAndReuses(t *testing.T) {
 }
 
 func TestResolveXAIDeviceProfilePrefersCredentialJSON(t *testing.T) {
+	restore := SetXAIClientVersionForTest("1.2.34")
+	defer restore()
+
 	auth := &cliproxyauth.Auth{
 		ID: "auth-1",
 		Metadata: map[string]any{
@@ -96,13 +91,10 @@ func TestResolveXAIDeviceProfilePrefersCredentialJSON(t *testing.T) {
 	if profile.AgentID != "agent-from-file" || profile.SessionID != "session-from-file" {
 		t.Fatalf("did not prefer credential agent/session: %+v", profile)
 	}
-	if profile.ClientVersion != defaultXAIClientVersion {
-		t.Fatalf("ClientVersion = %q, want lockstep %q", profile.ClientVersion, defaultXAIClientVersion)
-	}
 	if profile.ClientIdentifier != "custom-id" {
 		t.Fatalf("ClientIdentifier = %q, want custom-id", profile.ClientIdentifier)
 	}
-	wantUA := fmt.Sprintf("custom-id/%s (linux; x86_64)", defaultXAIClientVersion)
+	wantUA := "custom-id/1.2.34 (linux; x86_64)"
 	if profile.UserAgent() != wantUA {
 		t.Fatalf("UserAgent = %q, want %q", profile.UserAgent(), wantUA)
 	}
@@ -126,9 +118,6 @@ func TestEnsureXAIDeviceProfileRewritesLegacyIdentity(t *testing.T) {
 	profile, changed := EnsureXAIDeviceProfileInAuth(auth)
 	if !changed {
 		t.Fatal("expected rewrite of legacy client identity")
-	}
-	if profile.ClientVersion != defaultXAIClientVersion {
-		t.Fatalf("ClientVersion = %q, want %q", profile.ClientVersion, defaultXAIClientVersion)
 	}
 	if profile.ClientIdentifier != defaultXAIClientIdentifier {
 		t.Fatalf("ClientIdentifier = %q, want %q", profile.ClientIdentifier, defaultXAIClientIdentifier)

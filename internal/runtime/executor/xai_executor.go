@@ -20,6 +20,7 @@ var (
 const (
 	xaiImageHandlerType        = "openai-image"
 	xaiVideoHandlerType        = "openai-video"
+	xaiSpeechHandlerType       = "openai-speech"
 	xaiCustomToolType          = "custom"
 	xaiFunctionToolType        = "function"
 	xaiImageGenerationToolType = "image_generation"
@@ -43,6 +44,7 @@ const (
 	xaiVideosEditsPath          = "/videos/edits"
 	xaiVideosExtensionsPath     = "/videos/extensions"
 	xaiVideosPath               = "/videos"
+	xaiTTSPath                  = "/tts"
 	xaiIdempotencyKeyMetaKey    = "idempotency_key"
 	xaiComposerModelPrefix      = "grok-composer-"
 	xaiTokenAuthHeader          = "X-XAI-Token-Auth"
@@ -51,11 +53,9 @@ const (
 	// Keep in sync with the current Grok CLI client version that chat-proxy
 	// expects. The server rejects older versions with HTTP 426; it required
 	// 1.0.13+ as of 2026-10-01 (#6249).
-	xaiClientVersionValue         = "1.0.44"
-	xaiClientIdentifierHeader     = "x-grok-client-identifier"
-	xaiClientIdentifierValue      = "grok-shell"
-	xaiAuthenticateResponseHeader = "x-authenticateresponse"
-	xaiAuthenticateResponseValue  = "authenticate-response"
+	// This hardcoded value serves as fallback if npm registry resolution fails.
+	xaiClientVersionFallback = helps.DefaultXAIFallbackClientVersion
+	xaiClientVersionValue    = xaiClientVersionFallback
 	// xaiUsingAPIAttr enables the official API path for HTTP chat and media.
 	xaiUsingAPIAttr = "using_api"
 )
@@ -72,6 +72,12 @@ type XAIExecutor struct {
 // NewXAIExecutor creates a new xAI executor.
 func NewXAIExecutor(cfg *config.Config) *XAIExecutor {
 	return &XAIExecutor{cfg: cfg}
+}
+
+// StartXAIVersionUpdater starts the periodic Grok CLI version updater from npm.
+// proxyURL is the global outbound proxy; an empty value inherits the process environment.
+func StartXAIVersionUpdater(ctx context.Context, proxyURL string) {
+	helps.StartXAIVersionUpdater(ctx, proxyURL)
 }
 
 // Identifier returns the provider identifier.

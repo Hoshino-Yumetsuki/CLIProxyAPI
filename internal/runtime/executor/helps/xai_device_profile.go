@@ -13,11 +13,6 @@ import (
 
 // Keep in sync with xai-org/grok-build (xai-grok-version + grok-shell identity).
 const (
-	// defaultXAIClientVersion is the version reported on chat-proxy model turns
-	// through x-grok-client-version and the User-Agent. It tracks the version
-	// chat-proxy gates on, which runs ahead of the OAuth login version in
-	// internal/auth/xai (ClientVersion); the two are independent.
-	defaultXAIClientVersion    = "1.0.44"
 	defaultXAIClientIdentifier = "grok-shell"
 	defaultXAIClientMode       = "headless"
 	defaultXAITokenAuthValue   = "xai-grok-cli"
@@ -48,7 +43,7 @@ func (p XAIDeviceProfile) UserAgent() string {
 	}
 	version := strings.TrimSpace(p.ClientVersion)
 	if version == "" {
-		version = defaultXAIClientVersion
+		version = GetXAIClientVersion()
 	}
 	osName := strings.TrimSpace(p.OS)
 	if osName == "" {
@@ -191,7 +186,6 @@ func deviceProfileEqual(a, b XAIDeviceProfile) bool {
 
 func synthesizeXAIDeviceProfile(scope string) XAIDeviceProfile {
 	return normalizeXAIDeviceProfile(XAIDeviceProfile{
-		ClientVersion:    defaultXAIClientVersion,
 		ClientIdentifier: defaultXAIClientIdentifier,
 		ClientMode:       defaultXAIClientMode,
 		AgentID:          stableXAIUUID("xai-agent", scope),
@@ -202,8 +196,8 @@ func synthesizeXAIDeviceProfile(scope string) XAIDeviceProfile {
 }
 
 func normalizeXAIDeviceProfile(profile XAIDeviceProfile, scope string) XAIDeviceProfile {
-	// Always pin lockstep client version (upstream sends live xai-grok-version).
-	profile.ClientVersion = defaultXAIClientVersion
+	// Refresh the client version without changing the account's device identity.
+	profile.ClientVersion = GetXAIClientVersion()
 	id := strings.TrimSpace(profile.ClientIdentifier)
 	if id == "" || id == legacyXAIClientIdentifier {
 		profile.ClientIdentifier = defaultXAIClientIdentifier

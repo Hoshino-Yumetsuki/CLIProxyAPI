@@ -13,7 +13,7 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte, _ bool) []byte {
+func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte, _ bool) ([]byte, error) {
 	rawJSON := inputRawJSON
 
 	inputResult := util.GetGJSONBytesNoCopy(rawJSON, "input")
@@ -61,7 +61,7 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	rawJSON = normalizeCodexResponsesToolSchemas(rawJSON)
 	rawJSON = normalizeEmptyFunctionCallArguments(rawJSON)
 
-	return rawJSON
+	return rawJSON, nil
 }
 
 // normalizeEmptyFunctionCallArguments rewrites blank string arguments on
