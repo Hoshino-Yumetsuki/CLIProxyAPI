@@ -499,6 +499,37 @@ func geminiToAntigravity(modelName string, payload []byte, projectID string, der
 		template, _ = sjson.SetRawBytes(template, "request.toolConfig", []byte(toolConfig.Raw))
 		template, _ = sjson.DeleteBytes(template, "toolConfig")
 	}
+
+	// Mixed built-in and client-side tools require server tool context in responses.
+	// Set this before the payload finalizer so user overrides and filters still win.
+	hasFunctions, hasBuiltIn := false, false
+	if tools := util.GetGJSONBytesNoCopy(template, "request.tools"); tools.IsArray() {
+		tools.ForEach(func(_, tool gjson.Result) bool {
+			hasFunctions = hasFunctions || tool.Get("functionDeclarations.#").Int() > 0 || tool.Get("function_declarations.#").Int() > 0
+			hasBuiltIn = hasBuiltIn || tool.Get("googleSearch").IsObject() || tool.Get("google_search").IsObject() ||
+				tool.Get("codeExecution").IsObject() || tool.Get("code_execution").IsObject() ||
+				tool.Get("urlContext").IsObject() || tool.Get("url_context").IsObject()
+			return !hasFunctions || !hasBuiltIn
+		})
+	}
+	if hasFunctions && hasBuiltIn {
+		configPath := "request.toolConfig"
+		toolConfig := util.GetGJSONBytesNoCopy(template, configPath)
+		if !toolConfig.Exists() {
+			if snakeConfig := util.GetGJSONBytesNoCopy(template, "request.tool_config"); snakeConfig.Exists() {
+				configPath = "request.tool_config"
+				toolConfig = snakeConfig
+			}
+		}
+		flag := "includeServerSideToolInvocations"
+		if toolConfig.Get("include_server_side_tool_invocations").Exists() ||
+			(configPath == "request.tool_config" && !toolConfig.Get(flag).Exists()) {
+			flag = "include_server_side_tool_invocations"
+		}
+		if toolConfig.Get(flag).Type != gjson.True {
+			template, _ = sjson.SetBytes(template, configPath+"."+flag, true)
+		}
+	}
 	return template
 }
 
