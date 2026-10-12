@@ -764,6 +764,38 @@ func geminiToAntigravityDoc(doc *ojson.Doc, modelName string, projectID string, 
 		_ = doc.SetRawBytes("request.toolConfig", []byte(toolConfig.Raw))
 		_ = doc.Delete("toolConfig")
 	}
+
+	// Mixed built-in and client-side tools require server tool context in responses.
+	// Set this before the payload finalizer so user overrides and filters still win.
+	hasFunctions, hasBuiltIn := false, false
+	for _, tool := range doc.Get("request.tools").Array() {
+		hasFunctions = hasFunctions || len(tool.Get("functionDeclarations").Array()) > 0 || len(tool.Get("function_declarations").Array()) > 0
+		hasBuiltIn = hasBuiltIn || tool.Get("googleSearch").IsObject() || tool.Get("google_search").IsObject() ||
+			tool.Get("codeExecution").IsObject() || tool.Get("code_execution").IsObject() ||
+			tool.Get("urlContext").IsObject() || tool.Get("url_context").IsObject()
+		if hasFunctions && hasBuiltIn {
+			break
+		}
+	}
+	if hasFunctions && hasBuiltIn {
+		configPath := "request.toolConfig"
+		toolConfig := doc.Get(configPath)
+		if !toolConfig.Exists() {
+			if snakeConfig := doc.Get("request.tool_config"); snakeConfig.Exists() {
+				configPath = "request.tool_config"
+				toolConfig = snakeConfig
+			}
+		}
+		flag := "includeServerSideToolInvocations"
+		if toolConfig.Get("include_server_side_tool_invocations").Exists() ||
+			(configPath == "request.tool_config" && !toolConfig.Get(flag).Exists()) {
+			flag = "include_server_side_tool_invocations"
+		}
+		if !toolConfig.Get(flag).Bool() {
+			_ = doc.Set(configPath+"."+flag, true)
+		}
+	}
+	return doc.Bytes()
 }
 
 func generateRequestID() string {
