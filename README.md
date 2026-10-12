@@ -138,6 +138,7 @@ PackyCode provides special discounts for our software users: register using <a h
 - Grok Build support via OAuth login
 - Streaming, non-streaming, and WebSocket responses where supported
 - Function calling/tools support
+  - Antigravity enables `toolConfig.includeServerSideToolInvocations` when Google Search, code execution, or URL context is combined with function declarations. User payload overrides and filters still apply last.
 - Multimodal input support (text and images)
 - Multiple accounts with round-robin load balancing (Gemini, OpenAI, Claude, Grok)
 - Simple CLI authentication flows (Gemini, OpenAI, Claude, Grok)
