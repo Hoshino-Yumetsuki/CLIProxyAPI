@@ -151,19 +151,6 @@ func normalizeUsageAPIProvider(provider string) string {
 	return strings.ToLower(strings.TrimSpace(provider))
 }
 
-func usageAPIProviderKey(auth *coreauth.Auth) string {
-	provider := normalizeUsageAPIProvider(auth.Provider)
-	if auth.Attributes != nil {
-		if compatName := strings.TrimSpace(auth.Attributes["compat_name"]); compatName != "" {
-			provider = normalizeUsageAPIProvider(compatName)
-		}
-	}
-	if provider == "" {
-		return "unknown"
-	}
-	return provider
-}
-
 type usageAPICredentialAggregate struct {
 	success int64
 	failed  int64
@@ -184,7 +171,7 @@ func buildUsageAPIResponse(selection usageAPISelection, filters usageAPIFilters,
 			continue
 		}
 
-		provider := usageAPIProviderKey(auth)
+		provider := auth.ProviderUsageKey()
 		_, providerExposed := selection.providers[provider]
 
 		index := strings.TrimSpace(auth.EnsureIndex())
@@ -217,7 +204,7 @@ func buildUsageAPIResponse(selection usageAPISelection, filters usageAPIFilters,
 		recent := auth.RecentRequestsSnapshot(now)
 		aggregate.success += auth.Success
 		aggregate.failed += auth.Failed
-		aggregate.recent = mergeUsageAPIBuckets(aggregate.recent, recent)
+		aggregate.recent = coreauth.MergeRecentRequestBuckets(aggregate.recent, recent)
 
 		if !credentialExposed {
 			continue
@@ -229,7 +216,7 @@ func buildUsageAPIResponse(selection usageAPISelection, filters usageAPIFilters,
 		}
 		credential.success += auth.Success
 		credential.failed += auth.Failed
-		credential.recent = mergeUsageAPIBuckets(credential.recent, recent)
+		credential.recent = coreauth.MergeRecentRequestBuckets(credential.recent, recent)
 	}
 
 	out := make(map[string]usageAPIProviderUsage, len(aggregates))
@@ -254,25 +241,6 @@ func buildUsageAPIResponse(selection usageAPISelection, filters usageAPIFilters,
 		out[provider] = entry
 	}
 	return out
-}
-
-func mergeUsageAPIBuckets(dst, src []coreauth.RecentRequestBucket) []coreauth.RecentRequestBucket {
-	if len(dst) == 0 {
-		// Copy so provider and credential aggregates never share a bucket slice.
-		return append([]coreauth.RecentRequestBucket(nil), src...)
-	}
-	if len(src) == 0 {
-		return dst
-	}
-	n := len(dst)
-	if len(src) < n {
-		n = len(src)
-	}
-	for i := range n {
-		dst[i].Success += src[i].Success
-		dst[i].Failed += src[i].Failed
-	}
-	return dst
 }
 
 func ensureUsageAPIBuckets(buckets []coreauth.RecentRequestBucket) []coreauth.RecentRequestBucket {

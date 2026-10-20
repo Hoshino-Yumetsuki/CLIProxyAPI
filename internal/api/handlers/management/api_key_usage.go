@@ -15,44 +15,6 @@ type apiKeyUsageEntry struct {
 	RecentRequests []coreauth.RecentRequestBucket `json:"recent_requests"`
 }
 
-func mergeRecentRequestBuckets(dst, src []coreauth.RecentRequestBucket) []coreauth.RecentRequestBucket {
-	if len(dst) == 0 {
-		return src
-	}
-	if len(src) == 0 {
-		return dst
-	}
-	if len(dst) != len(src) {
-		n := len(dst)
-		if len(src) < n {
-			n = len(src)
-		}
-		for i := 0; i < n; i++ {
-			dst[i].Success += src[i].Success
-			dst[i].Failed += src[i].Failed
-		}
-		return dst
-	}
-	for i := range dst {
-		dst[i].Success += src[i].Success
-		dst[i].Failed += src[i].Failed
-	}
-	return dst
-}
-
-func apiKeyUsageProviderKey(auth *coreauth.Auth) string {
-	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
-	if auth.Attributes != nil {
-		if compatName := strings.TrimSpace(auth.Attributes["compat_name"]); compatName != "" {
-			provider = strings.ToLower(compatName)
-		}
-	}
-	if provider == "" {
-		return "unknown"
-	}
-	return provider
-}
-
 // GetAPIKeyUsage returns recent request buckets for all in-memory api_key auths,
 // grouped by provider and keyed by "base_url|api_key".
 func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
@@ -91,7 +53,7 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 			}
 		}
 		compositeKey := baseURL + "|" + apiKey
-		provider := apiKeyUsageProviderKey(auth)
+		provider := auth.ProviderUsageKey()
 
 		recent := auth.RecentRequestsSnapshot(now)
 		providerBucket, ok := out[provider]
@@ -102,7 +64,7 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
 		if existing, exists := providerBucket[compositeKey]; exists {
 			existing.Success += auth.Success
 			existing.Failed += auth.Failed
-			existing.RecentRequests = mergeRecentRequestBuckets(existing.RecentRequests, recent)
+			existing.RecentRequests = coreauth.MergeRecentRequestBuckets(existing.RecentRequests, recent)
 			providerBucket[compositeKey] = existing
 			continue
 		}
