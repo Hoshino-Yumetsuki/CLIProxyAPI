@@ -175,6 +175,17 @@ func TestUsageQueryFiltersProvidersAndRedactsCredentialMaterial(t *testing.T) {
 		Metadata: map[string]any{"email": "claude@example.com"},
 	})
 	registerUsageAPITestAuth(t, manager, &coreauth.Auth{
+		ID:       "claude-hidden-auth-id",
+		Index:    "idx-claude-hidden",
+		Provider: "claude",
+		FileName: "/secret/claude-hidden.json",
+		Attributes: map[string]string{
+			"api_key":  "sk-claude-hidden-secret",
+			"base_url": "https://claude-hidden.internal.example.com",
+		},
+		Metadata: map[string]any{"email": "claude-hidden@example.com"},
+	})
+	registerUsageAPITestAuth(t, manager, &coreauth.Auth{
 		ID:         "gemini-auth-id",
 		Index:      "idx-gemini",
 		Provider:   "gemini",
@@ -184,6 +195,8 @@ func TestUsageQueryFiltersProvidersAndRedactsCredentialMaterial(t *testing.T) {
 	markUsageAPITestResult(t, manager, "codex-auth-id", "codex", true)
 	markUsageAPITestResult(t, manager, "codex-auth-id", "codex", false)
 	markUsageAPITestResult(t, manager, "claude-auth-id", "claude", true)
+	markUsageAPITestResult(t, manager, "claude-hidden-auth-id", "claude", true)
+	markUsageAPITestResult(t, manager, "claude-hidden-auth-id", "claude", false)
 	markUsageAPITestResult(t, manager, "gemini-auth-id", "gemini", true)
 
 	rec := performUsageAPIRequest(server, "Bearer test-key")
@@ -216,12 +229,17 @@ func TestUsageQueryFiltersProvidersAndRedactsCredentialMaterial(t *testing.T) {
 		t.Fatalf("codex bucket totals = %d/%d, want 1/1", success, failed)
 	}
 
+	// The hidden claude auth must not contribute to the provider aggregate or
+	// its buckets, even though the provider is not allowlisted.
 	claude, ok := payload.Providers["claude"]
 	if !ok {
 		t.Fatalf("missing claude provider: %s", rec.Body.String())
 	}
 	if claude.Success != 1 || claude.Failed != 0 {
 		t.Fatalf("claude totals = %d/%d, want 1/0", claude.Success, claude.Failed)
+	}
+	if success, failed := sumUsageAPIBuckets(claude.RecentRequests); success != 1 || failed != 0 {
+		t.Fatalf("claude bucket totals = %d/%d, want 1/0", success, failed)
 	}
 	if len(claude.Credentials) != 1 || claude.Credentials[0].Name != "team-claude" {
 		t.Fatalf("claude credentials = %#v, want team-claude", claude.Credentials)
@@ -240,18 +258,24 @@ func TestUsageQueryFiltersProvidersAndRedactsCredentialMaterial(t *testing.T) {
 	for _, forbidden := range []string{
 		"sk-codex-secret",
 		"sk-claude-secret",
+		"sk-claude-hidden-secret",
 		"sk-gemini-secret",
 		"codex.internal.example.com",
 		"claude.internal.example.com",
+		"claude-hidden.internal.example.com",
 		"codex@example.com",
 		"claude@example.com",
+		"claude-hidden@example.com",
 		"codex-auth-id",
 		"claude-auth-id",
+		"claude-hidden-auth-id",
 		"/secret/codex.json",
 		"/secret/claude.json",
+		"/secret/claude-hidden.json",
 		"Codex Ops",
 		"idx-codex",
 		"idx-claude",
+		"idx-claude-hidden",
 	} {
 		if strings.Contains(rec.Body.String(), forbidden) {
 			t.Fatalf("usage response leaked %q: %s", forbidden, rec.Body.String())
