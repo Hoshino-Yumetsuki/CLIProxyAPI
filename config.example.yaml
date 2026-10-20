@@ -1186,6 +1186,9 @@ observability:
     # are returned. Raw upstream keys, base URLs, account emails, auth IDs, and
     # auth file paths are never exposed.
     #
+    # Counters are cumulative for the process lifetime and independent of
+    # usage-statistics-enabled. Auth indexes are listed by the Management API.
+    #
     # Optional query parameters narrow the response further; they never widen
     # the allowlist below:
     #   ?provider=<name>    repeatable or comma-separated provider keys
@@ -1194,9 +1197,13 @@ observability:
       enabled: false
       # Expose aggregate request counters for these provider keys. Wildcards
       # are not supported. An empty list exposes no provider aggregate.
+      # A provider aggregate includes every auth of that provider, so unnamed
+      # credentials remain inferable by subtracting the named rows.
       providers: []
       # Expose per-credential request counters under a public name. The auth
       # index is used only for server-side matching and is never returned.
+      # Names must be unique and must not contain commas; duplicate auth-index
+      # entries are ignored.
       credentials: []
       # credentials:
       #   - auth-index: "0123456789abcdef"

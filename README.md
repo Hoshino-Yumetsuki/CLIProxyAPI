@@ -154,7 +154,7 @@ see [MANAGEMENT_API.md](https://help.router-for.me/management/api)
 
 ## Usage Statistics
 
-Since v6.10.0, CLIProxyAPI and [CPAMC](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) no longer ship built-in usage statistics. If you need usage statistics, use:
+Since v6.10.0, CLIProxyAPI and [CPAMC](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) no longer ship a persistent usage statistics store. For durable, billing-grade accounting, use one of the services below. For lightweight in-memory counters, enable the built-in client usage API:
 
 ### Built-in client usage API
 
@@ -169,7 +169,26 @@ observability:
       credentials: [] # {auth-index, name} entries exposed under a public name
 ```
 
-When enabled, authenticated client keys can call `GET /v1/usage` with `?provider=<name>` and/or `?credential=<name>` filters. Management keys are not accepted. The response never contains upstream keys, base URLs, account emails, auth IDs, or auth file paths, and an empty allowlist exposes nothing. Counters are in-memory and reset when the process restarts; use a dedicated usage sink for billing-grade accounting.
+When enabled, authenticated client keys can call `GET /v1/usage` with `?provider=<name>` and/or `?credential=<name>` filters. Management keys are not accepted. The response never contains upstream keys, base URLs, account emails, auth IDs, auth indexes, or auth file paths, and an empty allowlist exposes nothing.
+
+Counters are cumulative for the process lifetime and independent of `usage-statistics-enabled`; they reset when the process restarts. Credential names must be unique and must not contain commas, and duplicate auth indexes are ignored. The Management API lists auth indexes. A provider aggregate includes every auth of that provider, so if the provider is exposed but only some credentials are named, the unnamed credentials' usage can be inferred by subtraction.
+
+```json
+{
+  "providers": {
+    "claude": {
+      "success": 42,
+      "failed": 1,
+      "recent_requests": [{"time": "12:00-12:10", "success": 3, "failed": 0}],
+      "credentials": [
+        {"name": "team-claude", "success": 40, "failed": 1, "recent_requests": [{"time": "12:00-12:10", "success": 3, "failed": 0}]}
+      ]
+    }
+  }
+}
+```
+
+`recent_requests` contains 20 ten-minute buckets in the server's local time.
 
 ### [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper)
 

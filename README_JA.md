@@ -147,7 +147,41 @@ CLIProxyAPIガイド：[https://help.router-for.me/](https://help.router-for.me/
 
 ## 使用量統計
 
-v6.10.0以降、CLIProxyAPIおよび [CPAMC](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) プロジェクトには使用量統計機能がプリセットされなくなりました。使用量統計が必要な場合は、次のプロジェクトをご利用ください：
+v6.10.0以降、CLIProxyAPIおよび [CPAMC](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) プロジェクトには永続的な使用量統計機能が同梱されなくなりました。永続的な課金用途の集計には次のプロジェクトをご利用ください。軽量なインメモリカウンターが必要な場合は、組み込みのクライアント使用量 API を有効にします：
+
+### 組み込みクライアント使用量 API
+
+CLIProxyAPI は、上流のシークレットを返さずに、設定したプロバイダーと認証情報の軽量なインメモリリクエストカウンターを公開できます。デフォルトでは無効です：
+
+```yaml
+observability:
+  usage:
+    user-api:
+      enabled: false
+      providers: []   # 公開するプロバイダーキー（例: claude、codex）
+      credentials: [] # {auth-index, name} エントリを公開名で公開
+```
+
+有効にすると、認証済みのクライアントキーが `GET /v1/usage` を呼び出し、`?provider=<name>` や `?credential=<name>` で絞り込めます。管理キーは受け付けません。レスポンスには上流のキー、ベース URL、アカウントのメールアドレス、認証 ID、認証インデックス、認証ファイルのパスは含まれません。許可リストが空の場合、何も公開されません。
+
+カウンターはプロセスの生存期間中に累積し、`usage-statistics-enabled` とは独立しています。プロセスの再起動でリセットされます。認証情報の名前は一意で、カンマを含めることはできません。重複する認証インデックスは無視されます。認証インデックスは管理 API で確認できます。プロバイダーの集計にはそのプロバイダーのすべての認証情報が含まれるため、プロバイダーを公開し一部の認証情報だけに名前を付けた場合、名前のない認証情報の使用量は差分から推測できます。
+
+```json
+{
+  "providers": {
+    "claude": {
+      "success": 42,
+      "failed": 1,
+      "recent_requests": [{"time": "12:00-12:10", "success": 3, "failed": 0}],
+      "credentials": [
+        {"name": "team-claude", "success": 40, "failed": 1, "recent_requests": [{"time": "12:00-12:10", "success": 3, "failed": 0}]}
+      ]
+    }
+  }
+}
+```
+
+`recent_requests` はサーバーのローカル時刻による 10 分間隔の 20 バケットです。
 
 ### [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper)
 

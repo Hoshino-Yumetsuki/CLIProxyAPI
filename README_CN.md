@@ -149,7 +149,41 @@ CLIProxyAPI 用户手册： [https://help.router-for.me/](https://help.router-fo
 
 ## 使用量统计
 
-自v6.10.0版本以后，CLIProxyAPI及 [CPAMC](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) 项目不再预置数据统计功能，如果有数据统计需求的请使用以下项目：
+自v6.10.0版本以后，CLIProxyAPI及 [CPAMC](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) 项目不再内置持久化使用量统计。如需持久化、计费级统计，请使用以下项目；如需轻量级内存计数，可启用内置的客户端使用量 API：
+
+### 内置客户端使用量 API
+
+CLIProxyAPI 可以为选定的提供商和凭据暴露轻量级内存请求计数，且不会返回上游密钥。该功能默认关闭：
+
+```yaml
+observability:
+  usage:
+    user-api:
+      enabled: false
+      providers: []   # 要暴露的提供商键，例如 claude 或 codex
+      credentials: [] # {auth-index, name} 条目，使用公开名称暴露
+```
+
+启用后，通过认证的客户端密钥可以调用 `GET /v1/usage`，并使用 `?provider=<name>` 和/或 `?credential=<name>` 过滤。管理密钥不被接受。响应中不会包含上游密钥、Base URL、账号邮箱、认证 ID、认证索引或认证文件路径；允许列表为空时不会暴露任何数据。
+
+计数在进程生命周期内累计，与 `usage-statistics-enabled` 无关，并在进程重启后清零。凭据名称必须唯一且不能包含逗号，重复的认证索引会被忽略。认证索引可通过管理 API 查询。提供商聚合包含该提供商的所有认证，因此如果暴露了提供商但只命名了部分凭据，未命名凭据的使用量可以通过相减推断。
+
+```json
+{
+  "providers": {
+    "claude": {
+      "success": 42,
+      "failed": 1,
+      "recent_requests": [{"time": "12:00-12:10", "success": 3, "failed": 0}],
+      "credentials": [
+        {"name": "team-claude", "success": 40, "failed": 1, "recent_requests": [{"time": "12:00-12:10", "success": 3, "failed": 0}]}
+      ]
+    }
+  }
+}
+```
+
+`recent_requests` 包含 20 个十分钟桶，时间使用服务器本地时区。
 
 ### [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper)
 
