@@ -126,8 +126,9 @@ func TestUsageQueryRequiresAuthenticatedClientKey(t *testing.T) {
 
 	t.Run("management key is not a client key", func(t *testing.T) {
 		server := newTestServerWithConfig(t, &proxyconfig.Config{
-			SDKConfig: sdkconfig.SDKConfig{APIKeys: []string{"test-key"}},
-			UsageAPI:  proxyconfig.UsageAPIConfig{Enabled: true, Providers: []string{"codex"}},
+			SDKConfig:        sdkconfig.SDKConfig{APIKeys: []string{"test-key"}},
+			RemoteManagement: proxyconfig.RemoteManagement{SecretKey: "management-secret"},
+			UsageAPI:         proxyconfig.UsageAPIConfig{Enabled: true, Providers: []string{"codex"}},
 		})
 
 		rec := performUsageAPIRequest(server, "Bearer management-secret")
