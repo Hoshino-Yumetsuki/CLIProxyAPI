@@ -28,6 +28,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginhost"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/redisqueue"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/usageapi"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/wstunnel"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
@@ -99,6 +100,9 @@ type Server struct {
 	// delegate to that host while plugin model routing, lifecycle callbacks, and
 	// websocket observers stay delegated to pluginHost.
 	interceptorHost handlers.PluginInterceptorHost
+
+	// usageAPI serves user-facing upstream quota reports.
+	usageAPI *usageapi.Service
 
 	// managementRoutesRegistered tracks whether the management routes have been attached to the engine.
 	managementRoutesRegistered atomic.Bool
@@ -264,6 +268,19 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		s.mgmt.SetPostAuthPersistHook(optionState.postAuthPersistHook)
 	}
 	s.localPassword = optionState.localPassword
+
+	var quotaFetcher usageapi.QuotaFetcher
+	if optionState.pluginHost != nil {
+		quotaFetcher = optionState.pluginHost
+	}
+	s.usageAPI = usageapi.New(func() *config.UsageAPIConfig {
+		current := s.getConfig()
+		if current == nil {
+			return nil
+		}
+		usage := current.UsageAPI
+		return &usage
+	}, s.handlers.AuthManager, quotaFetcher)
 
 	// Home heartbeat gate: when home is enabled, block all endpoints with 503 until the
 	// subscribe-config heartbeat connection is healthy.
