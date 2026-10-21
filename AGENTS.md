@@ -3,9 +3,11 @@
 Go 1.26+ proxy server providing OpenAI/Gemini/Claude/Codex compatible APIs with OAuth and round-robin load balancing.
 
 ## Repository
-- GitHub: https://github.com/router-for-me/CLIProxyAPI
+
+- GitHub: <https://github.com/router-for-me/CLIProxyAPI>
 
 ## Commands
+
 ```bash
 gofmt -w . # Format (required after Go changes)
 go build -o cli-proxy-api ./cmd/server # Build
@@ -14,15 +16,18 @@ go test ./... # Run all tests
 go test -v -run TestName ./path/to/pkg # Run single test
 go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRED after changes)
 ```
+
 - Common flags: `--config <path>`, `--tui`, `--standalone`, `--local-model`, `--no-browser`, `--oauth-callback-port <port>`
 
 ## Config
+
 - Default config: `config.yaml` (template: `config.example.yaml`)
 - `.env` is auto-loaded from the working directory
 - Auth material defaults under `auths/`
 - Storage backends: file-based default; optional Postgres/git/object store (`PGSTORE_*`, `GITSTORE_*`, `OBJECTSTORE_*`)
 
 ## Architecture
+
 - `cmd/server/` — Server entrypoint
 - `internal/api/` — Gin HTTP API (routes, middleware, modules)
 - `internal/api/modules/amp/` — Amp integration (Amp-style routes + reverse proxy)
@@ -42,6 +47,7 @@ go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRE
 - `test/` — Cross-module integration tests
 
 ## Code Conventions
+
 - Keep changes small and simple (KISS)
 - Comments in English only
 - If editing code that already contains non-English comments, translate them to English (don’t add new non-English comments)
@@ -61,3 +67,7 @@ go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRE
 - Avoid wall-clock `time.Sleep` in TTL, expiration, ordering, or cache-eviction unit tests due to platform timer granularity (e.g. Windows default timer resolution of ~15.6ms) and CI jitter under load; prefer controllable clocks (`nowFunc` / mock clock), explicit timestamp manipulation, or deterministic synchronization primitives.
 - Note: if modifying features that involve CLIProxyAPIHome, check if corresponding updates are needed in the CLIProxyAPIHome repository.
 - Endpoints under the `/v0/management` base URL are deprecated and no longer maintained. For any feature changes, do not modify endpoints under `/v0/management` unless necessary to fix compilation errors.
+
+## Forked Repository
+
+This is a fork of [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). The fork is maintained for extra features & patches that were never expected to contribute to upstream. Any GitHub related instructions refer to the fork (<https://github.com/Hoshino-Yumetsuki/CLIProxyAPI>), never the upstream. Do not ever touch the upstream repo without explicit permission from the user.
