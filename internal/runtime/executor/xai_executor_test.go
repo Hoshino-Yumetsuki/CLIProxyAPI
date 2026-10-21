@@ -2870,8 +2870,24 @@ func TestXAIExecutorCompactOAuthUsesOfficialAPIHeadersNotCLIProxy(t *testing.T) 
 	if gotClientVersion != "" {
 		t.Fatalf("%s = %q, want empty on compact", xaiClientVersionHeader, gotClientVersion)
 	}
-	if strings.Contains(gotUserAgent, "grok-shell/") || strings.Contains(gotUserAgent, "xai-grok-workspace/") {
-		t.Fatalf("User-Agent = %q, want no CLI shell UA on compact", gotUserAgent)
+	if got, want := gotUserAgent, "xai-grok-workspace/"+xaiClientVersion(); got != want {
+		t.Fatalf("User-Agent = %q, want default %q on compact when downstream UA is absent", got, want)
+	}
+
+	_, err = exec.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "grok-4.5",
+		Payload: []byte(`{"model":"grok-4.5","input":[{"role":"user","content":"hi"}]}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Alt:          "responses/compact",
+		Stream:       false,
+		Headers:      http.Header{"User-Agent": []string{"downstream-compact-client/1.0"}},
+	})
+	if err != nil {
+		t.Fatalf("Execute compact with downstream UA error: %v", err)
+	}
+	if gotUserAgent != "downstream-compact-client/1.0" {
+		t.Fatalf("User-Agent = %q, want downstream-compact-client/1.0 on compact", gotUserAgent)
 	}
 }
 
@@ -6321,8 +6337,8 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				t.Fatalf("%s = %q, want empty for official API", header, got)
 			}
 		}
-		if got := req.Header.Get("User-Agent"); got != "" {
-			t.Fatalf("User-Agent = %q, want empty for official API", got)
+		if got, want := req.Header.Get("User-Agent"), "xai-grok-workspace/"+xaiClientVersionValue; got != want {
+			t.Fatalf("User-Agent = %q, want %q for official API default", got, want)
 		}
 	})
 
@@ -6403,8 +6419,47 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				t.Fatalf("%s = %q, want empty for custom gateway", header, got)
 			}
 		}
-		if got := req.Header.Get("User-Agent"); got != "" {
-			t.Fatalf("User-Agent = %q, want empty for custom gateway", got)
+		if got, want := req.Header.Get("User-Agent"), "xai-grok-workspace/"+xaiClientVersionValue; got != want {
+			t.Fatalf("User-Agent = %q, want %q for custom gateway default", got, want)
+		}
+	})
+
+	t.Run("forwards downstream User-Agent on official API and custom gateway but keeps CLI proxy UA on chat proxy", func(t *testing.T) {
+		clientHeaders := http.Header{"User-Agent": []string{"downstream-client/2.0"}}
+
+		apiReq := httptest.NewRequest(http.MethodPost, "https://api.x.ai/v1/responses", nil)
+		apiAuth := &cliproxyauth.Auth{
+			Attributes: map[string]string{"base_url": xaiauth.DefaultAPIBaseURL},
+		}
+		applyXAIChatHeaders(apiReq, apiAuth, "xai-token", true, "conv-1", "grok-4.6", clientHeaders)
+		if got := apiReq.Header.Get("User-Agent"); got != "downstream-client/2.0" {
+			t.Fatalf("official API User-Agent = %q, want downstream-client/2.0", got)
+		}
+
+		customReq := httptest.NewRequest(http.MethodPost, "https://gateway.example.com/responses", nil)
+		customAuth := &cliproxyauth.Auth{
+			Attributes: map[string]string{
+				"base_url":      "https://gateway.example.com/v1",
+				xaiUsingAPIAttr: "false",
+			},
+		}
+		applyXAIChatHeaders(customReq, customAuth, "xai-token", false, "", "grok-4.6", clientHeaders)
+		if got := customReq.Header.Get("User-Agent"); got != "downstream-client/2.0" {
+			t.Fatalf("custom gateway User-Agent = %q, want downstream-client/2.0", got)
+		}
+
+		proxyReq := httptest.NewRequest(http.MethodPost, xaiauth.CLIChatProxyBaseURL+"/responses", nil)
+		proxyAuth := &cliproxyauth.Auth{
+			Attributes: map[string]string{
+				"auth_kind": "oauth",
+				"base_url":  xaiauth.DefaultAPIBaseURL,
+			},
+		}
+		applyXAIChatHeaders(proxyReq, proxyAuth, "xai-token", true, "conv-1", "grok-4.6", clientHeaders)
+		// The CLI chat proxy branch delegates to the Grok Build identity helper,
+		// so the downstream User-Agent is not forwarded there.
+		if got := proxyReq.Header.Get("User-Agent"); !strings.HasPrefix(got, "grok-shell/") {
+			t.Fatalf("CLI chat proxy User-Agent = %q, want grok-shell/<ver> (os; arch)", got)
 		}
 	})
 

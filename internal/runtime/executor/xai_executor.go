@@ -74,6 +74,12 @@ func NewXAIExecutor(cfg *config.Config) *XAIExecutor {
 	return &XAIExecutor{cfg: cfg}
 }
 
+// xaiClientVersion returns the active Grok CLI client version (dynamically fetched
+// from npm or falling back to xaiClientVersionFallback).
+func xaiClientVersion() string {
+	return helps.GetXAIClientVersion()
+}
+
 // StartXAIVersionUpdater starts the periodic Grok CLI version updater from npm.
 // proxyURL is the global outbound proxy; an empty value inherits the process environment.
 func StartXAIVersionUpdater(ctx context.Context, proxyURL string) {
@@ -96,6 +102,7 @@ func (e *XAIExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth)
 	} else {
 		req.Header.Del("Authorization")
 	}
+	ensureXAIUserAgent(req)
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
