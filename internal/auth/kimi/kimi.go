@@ -113,6 +113,11 @@ func ResolveKimiAPIBaseURL(domain string) string {
 	return KimiAPIBaseURL
 }
 
+// UsageURL returns the canonical quota endpoint for the given domain.
+func UsageURL(domain string) string {
+	return strings.TrimRight(ResolveKimiAPIBaseURL(domain), "/") + "/v1/usages"
+}
+
 // ResolveKimiDomainFromAuth detects whether an Auth represents kimi.ai or kimi.com.
 // Explicit configurations (domain, base_url, type) take precedence over file names.
 func ResolveKimiDomainFromAuth(auth *cliproxyauth.Auth) string {
