@@ -14,13 +14,14 @@ import (
 	"sync"
 	"time"
 
+	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	homekv "github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
 const (
-	defaultClaudeFingerprintUserAgent      = "claude-cli/2.1.280 (external, cli)"
+	defaultClaudeFingerprintUserAgent      = claudeauth.UsageUserAgent
 	defaultClaudeFingerprintPackageVersion = "0.112.1"
 	defaultClaudeFingerprintRuntimeVersion = "v26.3.0"
 	defaultClaudeFingerprintOS             = "MacOS"

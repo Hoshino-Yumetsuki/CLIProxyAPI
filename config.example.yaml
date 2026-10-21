@@ -1188,6 +1188,10 @@ observability:
     # Disabled by default and always requires a proxy API key; management keys are not accepted.
     # Reports require a quota provider plugin or upstream quota headers already observed by the proxy.
     # providers is a strict allow-list; an empty list keeps the endpoint disabled.
+    # Built-in quota probes cover claude, antigravity, codex, xai, kimi, devin, and meta
+    # when the credential exposes the provider's first-party usage endpoint.
+    # When enabled with a non-empty allow-list, the server root advertises "GET /v1/usage"
+    # in its endpoints list so clients can discover the endpoint.
     # credentials optionally narrows the endpoint to auth indices, auth file names, or auth IDs.
     # cache-seconds controls how long upstream quota probes are cached (default 60, max 3600).
     api:

@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v8/internal/api/handlers/management"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/api/middleware"
+	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 	codexlive "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/live"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/githubauth"
@@ -236,10 +237,11 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 	s.localPassword = optionState.localPassword
 
-	var quotaFetcher usageapi.QuotaFetcher
+	var pluginQuotaFetcher usageapi.QuotaFetcher
 	if optionState.pluginHost != nil {
-		quotaFetcher = optionState.pluginHost
+		pluginQuotaFetcher = optionState.pluginHost
 	}
+	quotaFetcher := usageapi.NewDefaultQuotaFetcher(pluginQuotaFetcher, claudeauth.NewAnthropicHttpClient(&cfg.SDKConfig))
 	s.usageAPI = usageapi.New(func() *config.UsageAPIConfig {
 		current := s.getConfig()
 		if current == nil {
