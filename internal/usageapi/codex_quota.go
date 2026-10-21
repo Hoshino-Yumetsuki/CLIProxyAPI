@@ -145,12 +145,15 @@ func codexQuotaBuckets(rateLimit *codexQuotaRateLimit) []pluginapi.QuotaBucket {
 	if rateLimit == nil {
 		return nil
 	}
-	windows := []*codexQuotaWindow{
-		rateLimit.PrimaryWindow,
-		rateLimit.PrimaryWindowCamel,
-		rateLimit.SecondaryWindow,
-		rateLimit.SecondaryWindowCamel,
+	primary := rateLimit.PrimaryWindow
+	if primary == nil {
+		primary = rateLimit.PrimaryWindowCamel
 	}
+	secondary := rateLimit.SecondaryWindow
+	if secondary == nil {
+		secondary = rateLimit.SecondaryWindowCamel
+	}
+	windows := []*codexQuotaWindow{primary, secondary}
 	buckets := make([]pluginapi.QuotaBucket, 0, len(windows))
 	for _, window := range windows {
 		if window == nil {

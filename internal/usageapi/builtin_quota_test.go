@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -240,6 +241,28 @@ func TestDefaultQuotaFetcherDispatchesCodexAlias(t *testing.T) {
 	}
 	if len(response.Groups) != 1 {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestCodexQuotaBucketsPreferSnakeCaseWithoutDuplicates(t *testing.T) {
+	snakePercent := 10.0
+	camelPercent := 90.0
+	buckets := codexQuotaBuckets(&codexQuotaRateLimit{
+		PrimaryWindow:      &codexQuotaWindow{UsedPercent: &snakePercent},
+		PrimaryWindowCamel: &codexQuotaWindow{UsedPercent: &camelPercent},
+	})
+	if len(buckets) != 1 {
+		t.Fatalf("buckets = %#v, want one primary window", buckets)
+	}
+	if buckets[0].RemainingFraction != 0.9 {
+		t.Fatalf("remaining = %v, want snake_case value", buckets[0].RemainingFraction)
+	}
+
+	buckets = codexQuotaBuckets(&codexQuotaRateLimit{
+		PrimaryWindowCamel: &codexQuotaWindow{UsedPercent: &camelPercent},
+	})
+	if len(buckets) != 1 || math.Abs(buckets[0].RemainingFraction-0.1) > 1e-9 {
+		t.Fatalf("camelCase fallback buckets = %#v", buckets)
 	}
 }
 
