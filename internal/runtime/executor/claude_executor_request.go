@@ -36,7 +36,7 @@ import (
 const (
 	claudeTokenCountingBeta          = "token-counting-2024-11-01"
 	claudeFastModeBeta               = "fast-mode-2026-02-01"
-	claudeOAuthBeta                  = "oauth-2025-04-20"
+	claudeOAuthBeta                  = claudeauth.OAuthBeta
 	claudeCodeBeta                   = "claude-code-20250219"
 	claudeContext1MBeta              = "context-1m-2025-08-07"
 	claudeMidConvSystemBeta          = "mid-conversation-system-2026-04-07"
