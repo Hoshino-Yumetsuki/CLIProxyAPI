@@ -138,13 +138,20 @@ func (s *Server) setupRoutes() {
 
 	// Root endpoint
 	s.engine.GET("/", func(c *gin.Context) {
+		endpoints := []string{
+			"POST /v1/chat/completions",
+			"POST /v1/completions",
+			"GET /v1/models",
+		}
+		// Advertise the opt-in usage endpoint only when it can actually serve
+		// requests. Clients use this list to discover CLIProxyAPI servers
+		// without guessing which paths exist.
+		if s.usageAPI != nil && s.usageAPI.Enabled() {
+			endpoints = append(endpoints, "GET /v1/usage")
+		}
 		c.JSON(http.StatusOK, gin.H{
-			"message": "CLI Proxy API Server",
-			"endpoints": []string{
-				"POST /v1/chat/completions",
-				"POST /v1/completions",
-				"GET /v1/models",
-			},
+			"message":   "CLI Proxy API Server",
+			"endpoints": endpoints,
 		})
 	})
 

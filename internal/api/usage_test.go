@@ -124,3 +124,54 @@ func TestUsageEndpointReturnsObservedLimits(t *testing.T) {
 		t.Fatalf("source = %v, want observed-signals", got)
 	}
 }
+
+func TestRootAdvertisesUsageEndpointWhenEnabled(t *testing.T) {
+	cases := []struct {
+		name        string
+		cfg         *proxyconfig.Config
+		wantPresent bool
+	}{
+		{name: "disabled by default", cfg: nil},
+		{
+			name: "enabled without provider allow-list",
+			cfg:  &proxyconfig.Config{UsageAPI: proxyconfig.UsageAPIConfig{Enabled: true}},
+		},
+		{
+			name:        "enabled with provider allow-list",
+			cfg:         &proxyconfig.Config{UsageAPI: proxyconfig.UsageAPIConfig{Enabled: true, Providers: []string{"claude"}}},
+			wantPresent: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := usageTestServer(t, tc.cfg)
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			recorder := httptest.NewRecorder()
+			server.engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body = %s", recorder.Code, recorder.Body.String())
+			}
+
+			var root struct {
+				Message   string   `json:"message"`
+				Endpoints []string `json:"endpoints"`
+			}
+			if errUnmarshal := json.Unmarshal(recorder.Body.Bytes(), &root); errUnmarshal != nil {
+				t.Fatalf("decode root response: %v", errUnmarshal)
+			}
+			if root.Message != "CLI Proxy API Server" {
+				t.Fatalf("message = %q, want CLI Proxy API Server", root.Message)
+			}
+			present := false
+			for _, endpoint := range root.Endpoints {
+				if endpoint == "GET /v1/usage" {
+					present = true
+					break
+				}
+			}
+			if present != tc.wantPresent {
+				t.Fatalf("GET /v1/usage present = %v, want %v; endpoints = %#v", present, tc.wantPresent, root.Endpoints)
+			}
+		})
+	}
+}
