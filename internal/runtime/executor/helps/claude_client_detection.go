@@ -10,6 +10,7 @@ import (
 
 	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
+	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 )
 
@@ -207,7 +208,7 @@ func isNativeClaudeXApp(value string) bool {
 }
 
 func claudeCodeHelperBetaProfile(redactThinking bool, trailing ...string) string {
-	betas := []string{"oauth-2025-04-20", "interleaved-thinking-2025-05-14"}
+	betas := []string{claudeauth.OAuthBeta, "interleaved-thinking-2025-05-14"}
 	if redactThinking {
 		betas = append(betas, "redact-thinking-2026-02-12")
 	}

@@ -64,18 +64,32 @@ type TokenData struct {
 	ErrorDescription string `json:"error_description,omitempty"`
 }
 
+// MetaQuotaWindow is one subscription usage window returned by the Meta mint endpoint.
+type MetaQuotaWindow struct {
+	UsedPercent        *float64 `json:"used_percent"`
+	ResetsAt           string   `json:"resets_at"`
+	WindowDurationMins *float64 `json:"window_duration_mins"`
+}
+
+// MetaSubsUsage describes the subscription quota windows on a minted key response.
+type MetaSubsUsage struct {
+	Window *MetaQuotaWindow `json:"window"`
+	Weekly *MetaQuotaWindow `json:"weekly"`
+}
+
 // MintedKeyResponse represents the API key response minted from https://api.meta.ai/muse-code/key.
 type MintedKeyResponse struct {
-	APIKey           string `json:"api_key"`
-	BaseURL          string `json:"base_url"`
-	UserEmail        string `json:"user_email"`
-	UserFullName     string `json:"user_full_name"`
-	SubsTierName     string `json:"subs_tier_name"`
-	SubsTierID       string `json:"subs_tier_id"`
-	IsSubsActive     bool   `json:"is_subs_active"`
-	HasPaymentMethod bool   `json:"has_payment_method"`
-	RequirePayment   bool   `json:"require_payment"`
-	CanSubscribe     bool   `json:"can_subscribe"`
+	APIKey           string         `json:"api_key"`
+	BaseURL          string         `json:"base_url"`
+	UserEmail        string         `json:"user_email"`
+	UserFullName     string         `json:"user_full_name"`
+	SubsTierName     string         `json:"subs_tier_name"`
+	SubsTierID       string         `json:"subs_tier_id"`
+	SubsUsage        *MetaSubsUsage `json:"subs_usage,omitempty"`
+	IsSubsActive     bool           `json:"is_subs_active"`
+	HasPaymentMethod bool           `json:"has_payment_method"`
+	RequirePayment   bool           `json:"require_payment"`
+	CanSubscribe     bool           `json:"can_subscribe"`
 }
 
 // MetaAuthBundle packages the token data, minted key, and user metadata.
@@ -225,6 +239,20 @@ type MetaAuth struct {
 // SetMintURL overrides the API key minting endpoint (primarily for unit tests).
 func (a *MetaAuth) SetMintURL(u string) {
 	a.mintURL = strings.TrimSpace(u)
+}
+
+// SetHTTPClient overrides the HTTP client used for minting (primarily for unit tests).
+func (a *MetaAuth) SetHTTPClient(client *http.Client) {
+	if a != nil && client != nil {
+		a.httpClient = client
+	}
+}
+
+// FetchMintedKey queries the canonical Meta mint endpoint with the given DCA token.
+func FetchMintedKey(ctx context.Context, dcaToken string, client *http.Client) (*MintedKeyResponse, error) {
+	auth := NewMetaAuth(nil)
+	auth.SetHTTPClient(client)
+	return auth.MintAPIKey(ctx, dcaToken)
 }
 
 // NewMetaAuth creates a new MetaAuth service instance.
