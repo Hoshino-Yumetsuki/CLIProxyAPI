@@ -150,4 +150,5 @@ inspection; running it does not register models in a running proxy.
 - Enable request logging: Management API GET/PUT `/v0/management/request-log`
 - Toggle debug logs: Management API GET/PUT `/v0/management/debug`
 - Hot reload changes in `config.yaml` and `auths/` are picked up automatically by the watcher
+- Devin `apply_patch` rejections expose `invalid_tool_arguments` to clients. Server log diagnostics classify malformed JSON using Go 1.27 decoder errors without including patch text.
 
