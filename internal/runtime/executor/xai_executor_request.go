@@ -185,6 +185,7 @@ func (e *XAIExecutor) prepareResponsesRequestToDoc(ctx context.Context, req clip
 	normalizeXAIInputReasoningItemsDoc(doc)
 	sanitizeXAIInputEncryptedContentWithOptionsDoc(doc, true)
 	normalizeCodexInstructionsDoc(doc)
+	normalizeXAIInstructionsDoc(doc)
 	// stop is supported by Chat Completions but not by xAI's Responses API.
 	// Thinking was handled before payload overrides and must not be revalidated here.
 	_ = doc.Delete("stop")
@@ -2978,4 +2979,73 @@ func xaiCustomToolCallOutput(output ojson.Result) string {
 		return output.String()
 	}
 	return output.Raw
+}
+func normalizeXAIInstructions(body []byte) []byte {
+	if !ojson.Valid(string(body)) {
+		return body
+	}
+	doc := ojson.NewDoc(body)
+	normalizeXAIInstructionsDoc(doc)
+	return doc.Bytes()
+}
+
+func normalizeXAIInstructionsDoc(doc *ojson.Doc) {
+	if doc == nil {
+		return
+	}
+	input := doc.Get("input")
+	if !input.IsArray() {
+		return
+	}
+
+	instructions := doc.Get("instructions").String()
+	remaining := make([]ojson.Result, 0, len(input.Array()))
+	var hoisted strings.Builder
+	for _, item := range input.Array() {
+		role := item.Get("role").String()
+		if item.Get("type").String() != "message" || (role != "system" && role != "developer") {
+			remaining = append(remaining, item)
+			continue
+		}
+
+		content := item.Get("content")
+		if content.Type == ojson.String {
+			if text := content.String(); text != "" {
+				if hoisted.Len() > 0 {
+					hoisted.WriteString("\n\n")
+				}
+				hoisted.WriteString(text)
+			}
+			continue
+		}
+		for _, part := range content.Array() {
+			if text := part.Get("text").String(); text != "" {
+				if hoisted.Len() > 0 {
+					hoisted.WriteString("\n\n")
+				}
+				hoisted.WriteString(text)
+			}
+		}
+	}
+
+	if hoisted.Len() > 0 {
+		if instructions != "" {
+			instructions += "\n\n"
+		}
+		instructions += hoisted.String()
+		_ = doc.Set("instructions", instructions)
+	} else if instructions == "" {
+		_ = doc.Delete("instructions")
+	}
+
+	var encoded bytes.Buffer
+	encoded.WriteByte('[')
+	for i, item := range remaining {
+		if i > 0 {
+			encoded.WriteByte(',')
+		}
+		encoded.WriteString(item.Raw)
+	}
+	encoded.WriteByte(']')
+	_ = doc.SetRawBytes("input", encoded.Bytes())
 }

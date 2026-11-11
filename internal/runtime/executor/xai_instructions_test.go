@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 )
 
 // The xai-org/grok-build client builds the Responses payload with the system
@@ -114,7 +114,7 @@ func TestNormalizeXAIInstructions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := normalizeXAIInstructions([]byte(tt.body))
 
-			instructions := gjson.GetBytes(got, "instructions")
+			instructions := ojson.GetBytes(got, "instructions")
 			if tt.wantInstrPresent {
 				if !instructions.Exists() {
 					t.Fatalf("instructions absent; body=%s", got)
@@ -126,7 +126,7 @@ func TestNormalizeXAIInstructions(t *testing.T) {
 				t.Fatalf("instructions should be absent, got %q", instructions.String())
 			}
 
-			input := gjson.GetBytes(got, "input")
+			input := ojson.GetBytes(got, "input")
 			if gotLen, wantLen := len(input.Array()), tt.wantInputLen; gotLen != wantLen {
 				t.Fatalf("input length = %d, want %d; body=%s", gotLen, wantLen, got)
 			}
@@ -198,10 +198,10 @@ func TestXAIExecutorHoistsSystemPromptIntoInstructions(t *testing.T) {
 	}
 
 	body := bodies[0]
-	if got := gjson.GetBytes(body, "instructions").String(); got != "AGENT RULES" {
+	if got := ojson.GetBytes(body, "instructions").String(); got != "AGENT RULES" {
 		t.Fatalf("instructions = %q, want %q; body=%s", got, "AGENT RULES", body)
 	}
-	for _, item := range gjson.GetBytes(body, "input").Array() {
+	for _, item := range ojson.GetBytes(body, "input").Array() {
 		switch item.Get("role").String() {
 		case "system", "developer":
 			t.Fatalf("system directive left in input; body=%s", body)
