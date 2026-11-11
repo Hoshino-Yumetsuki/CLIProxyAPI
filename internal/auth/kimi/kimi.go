@@ -15,7 +15,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"

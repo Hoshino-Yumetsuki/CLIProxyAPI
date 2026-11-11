@@ -12,7 +12,6 @@ import (
 	"uuid"
 
 	"github.com/MoeForge/moego/ojson"
-	"github.com/google/uuid"
 	homekv "github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	log "github.com/sirupsen/logrus"

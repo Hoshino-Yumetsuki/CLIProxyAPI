@@ -371,7 +371,7 @@ func (s *Service) probeAntigravityModelCapabilityHints(ctx context.Context, auth
 		return antigravityModelCapabilityHints{}, antigravityProbeStatusTransientError
 	}
 	if len(result.Models) > 0 {
-		s.storeLiveModelCache(auth.ID, "antigravity", result.Models)
+		s.storeLiveModelCache("antigravity", result.Models)
 	}
 	return result.Hints, antigravityProbeStatusSuccess
 }
@@ -511,38 +511,6 @@ func shouldSkipAntigravityFetchedModelID(modelID string) bool {
 	}
 }
 
-// antigravityDiscoveredModels constructs only metadata supplied by the API.
-// Existing registrations retain their richer static or plugin capabilities.
-func antigravityDiscoveredModels(hints antigravityModelCapabilityHints) []*ModelInfo {
-	ids := make([]string, 0, len(hints.Models))
-	for id := range hints.Models {
-		ids = append(ids, id)
-	}
-	for _, model := range models {
-		if model == nil {
-			continue
-		}
-		displayName := strings.TrimSpace(entry.DisplayName)
-		if displayName == "" {
-			displayName = modelID
-		}
-		_, webSearch := hints.WebSearchModelIDs[normalizeAntigravityFetchedModelID(modelID)]
-		models = append(models, &ModelInfo{
-			ID:                  modelID,
-			Object:              "model",
-			OwnedBy:             "antigravity",
-			Type:                "antigravity",
-			Name:                modelID,
-			DisplayName:         displayName,
-			Description:         displayName,
-			ContextLength:       max(0, entry.MaxTokens),
-			MaxCompletionTokens: max(0, entry.MaxOutputTokens),
-			SupportsWebSearch:   webSearch,
-		})
-	}
-	return models
-}
-
 func normalizeAntigravityFetchedModelID(modelID string) string {
 	return sdkauth.NormalizeAntigravityModelID(modelID)
 }
@@ -605,7 +573,7 @@ func (s *Service) antigravityModelsForHintsWithConfig(auth *coreauth.Auth, hints
 		// Authoritative empty catalog revokes everything, even a cached live list.
 		models = []*ModelInfo{}
 	case len(hints.ModelIDs) > 0:
-		if live := s.loadLiveModelCache(auth.ID, "antigravity"); len(live) > 0 {
+		if live, _ := s.loadLiveModelCache("antigravity"); len(live) > 0 {
 			// The live upstream catalog is authoritative; the static intersection
 			// would drop models the account can actually use.
 			models = mergeLiveWithStatic(live, registry.GetAntigravityModels(), "antigravity", "antigravity")
@@ -615,7 +583,7 @@ func (s *Service) antigravityModelsForHintsWithConfig(auth *coreauth.Auth, hints
 	default:
 		models = filterAntigravityModels(registry.GetAntigravityModels(), hints)
 	}
-	models = applyAntigravityFetchedModelCapabilities(models, hints)
+	// Live capability metadata is already merged with static models above.
 	excluded := cfg.OAuthExcludedModels[coreauth.OAuthModelAliasChannel(auth.Provider, auth.AuthKind())]
 	if value := strings.TrimSpace(auth.Attributes["excluded_models"]); value != "" {
 		excluded = strings.Split(value, ",")

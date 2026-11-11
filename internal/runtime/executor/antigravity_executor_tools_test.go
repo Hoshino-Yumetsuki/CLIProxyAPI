@@ -5,11 +5,11 @@ import (
 	"io"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
-	"github.com/tidwall/gjson"
 )
 
 func TestAntigravityBuildRequestMixedTools(t *testing.T) {
@@ -56,8 +56,8 @@ func TestAntigravityBuildRequestMixedTools(t *testing.T) {
 			if path == "" {
 				path = "request.toolConfig.includeServerSideToolInvocations"
 			}
-			flag := gjson.GetBytes(wire, path)
-			if tc.want && flag.Type != gjson.True || !tc.want && flag.Exists() {
+			flag := ojson.GetBytes(wire, path)
+			if tc.want && flag.Type != ojson.True || !tc.want && flag.Exists() {
 				t.Fatalf("%s = %s, want enabled=%v: %s", path, flag.Raw, tc.want, wire)
 			}
 			for _, preserved := range []string{
@@ -67,7 +67,7 @@ func TestAntigravityBuildRequestMixedTools(t *testing.T) {
 				"request.tool_config.function_calling_config.allowed_function_names.0",
 				"request.toolConfig.retrievalConfig.latLng.latitude",
 			} {
-				if original := gjson.GetBytes(payload, preserved); original.Exists() && gjson.GetBytes(wire, preserved).Value() != original.Value() {
+				if original := ojson.GetBytes(payload, preserved); original.Exists() && ojson.GetBytes(wire, preserved).Raw != original.Raw {
 					t.Fatalf("changed %s: %s", preserved, wire)
 				}
 			}
@@ -105,11 +105,11 @@ func TestPayloadBarrierAntigravityMixedTools(t *testing.T) {
 				if errRead != nil {
 					t.Fatal(errRead)
 				}
-				flag := gjson.GetBytes(wire, "request."+path)
-				if filter && flag.Exists() || !filter && flag.Type != gjson.False {
+				flag := ojson.GetBytes(wire, "request."+path)
+				if filter && flag.Exists() || !filter && flag.Type != ojson.False {
 					t.Fatalf("built-in processing undid payload rule: %s", wire)
 				}
-				if filter && gjson.GetBytes(wire, "request.contents.#").Int() != 1 {
+				if filter && ojson.GetBytes(wire, "request.contents.#").Int() != 1 {
 					t.Fatalf("filter did not run exactly once: %s", wire)
 				}
 			}
