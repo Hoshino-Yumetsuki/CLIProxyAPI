@@ -22,6 +22,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executionregistry"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 	sdkpluginstore "github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginstore"
+	"golang.org/x/sync/singleflight"
 )
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.

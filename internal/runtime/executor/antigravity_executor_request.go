@@ -795,7 +795,6 @@ func geminiToAntigravityDoc(doc *ojson.Doc, modelName string, projectID string, 
 			_ = doc.Set(configPath+"."+flag, true)
 		}
 	}
-	return doc.Bytes()
 }
 
 func generateRequestID() string {
